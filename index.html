@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ExcelsisAutomation | Macros, DXF, and Excelsis3D Plans</title>
+    <meta
+      name="description"
+      content="ExcelsisAutomation connects to SOLIDWORKS, tracks recent documents, runs local CAD macros, includes a DXF viewer, and links to the Excelsis3D open CAD plan."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header" data-header>
+      <a class="brand" href="#top" aria-label="ExcelsisAutomation home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>ExcelsisAutomation</span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#automation">Automation</a>
+        <a href="#macros">Macro descriptions</a>
+        <a href="#viewer">DXF Viewer</a>
+        <a class="help-link" href="#excelsis3d">Excelsis3D <span>dev help wanted</span></a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <img
+          class="hero-media"
+          src="assets/excelsis-recent-documents.png"
+          alt="ExcelsisAutomation recent SOLIDWORKS documents screen with search, filters, and document thumbnails"
+        >
+        <div class="hero-wash" aria-hidden="true"></div>
+        <div class="hero-content">
+          <p class="eyebrow">SOLIDWORKS macro runner and DXF workflow</p>
+          <h1 id="hero-title">Excelsis Automation</h1>
+          <p class="hero-copy">
+            A local CAD utility that connects to SOLIDWORKS, tracks recent
+            documents, runs useful macros, creates CAM folders, and gives DXF
+            output a quick visual/editing pass.
+          </p>
+          <div class="hero-actions" aria-label="Page sections">
+            <a class="button primary" href="downloads/Excelsis-0.5.33/Excelsis-Setup-0.5.33.exe" download>Download 0.5.33</a>
+            <a class="button secondary" href="#excelsis3d">Excelsis3D Plans</a>
+          </div>
+        </div>
+      </section>
+
+      <section id="automation" class="band compact-section" aria-labelledby="automation-title">
+        <div class="section-shell compact-grid">
+          <div>
+            <p class="eyebrow">Current app</p>
+            <h2 id="automation-title">Recent documents, macros, and CAD session tools.</h2>
+          </div>
+          <div class="compact-copy">
+            <p>
+              While SOLIDWORKS is running, ExcelsisAutomation records recently
+              opened parts, assemblies, and drawings. Users can search/filter
+              the list, reopen documents, retry thumbnails, and keep the active
+              CAD session visible from one dashboard.
+            </p>
+            <p>
+              The Macro Runner reads `Documents\Excelsis\Macros`, converts
+              `.swb` sources to `.swp`, and exposes Run/description buttons for
+              the active macro set. Short descriptions for the public macros are
+              listed directly below the screenshots.
+            </p>
+            <div class="download-card" id="download">
+              <h3>Download installer</h3>
+              <p>
+                Version 0.5.33 is included in this repository together with its
+                macro folder, because the installer workflow expects the bundled
+                macros to be available beside it.
+              </p>
+              <a class="button primary" href="downloads/Excelsis-0.5.33/Excelsis-Setup-0.5.33.exe" download>Download Excelsis 0.5.33</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-section" aria-label="Automation screenshots">
+        <div class="section-shell image-pair">
+          <figure class="screenshot-frame">
+            <img
+              src="assets/excelsis-recent-documents.png"
+              alt="Recent SOLIDWORKS documents grid with thumbnails, search, and filter controls"
+            >
+            <figcaption>Recent documents are collected from the live SOLIDWORKS session and can be searched or filtered.</figcaption>
+          </figure>
+          <figure class="screenshot-frame">
+            <img
+              src="assets/excelsis-macro-runner.png"
+              alt="Macro Runner cards with run buttons and macro conversion controls"
+            >
+            <figcaption>Macro Runner keeps local macros, conversion tools, Run buttons, and connection status in one place. Descriptions are listed in the next section.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="macros" class="band macro-section" aria-labelledby="macros-title">
+        <div class="section-shell">
+          <div class="section-heading tight">
+            <p class="eyebrow">Macro notes</p>
+            <h2 id="macros-title">What the included macros do.</h2>
+          </div>
+          <div class="macro-grid">
+            <article class="macro-card">
+              <h3>BOM_v19</h3>
+              <p>Exports assembly BOM or profile cutlist data to Excel, including quantities, hidden counts, snapshots, and 6 m bar allocation with saw kerf.</p>
+            </article>
+            <article class="macro-card">
+              <h3>BOM_v19_ROfriendly</h3>
+              <p>Read-only friendly BOM/CutList variant that writes independent output files without touching the original macro source.</p>
+            </article>
+            <article class="macro-card">
+              <h3>CNCDXF_v1</h3>
+              <p>Exports selected planar faces to DXF and stamps a 2 mm registration circle at the DXF bounding-box center.</p>
+            </article>
+            <article class="macro-card">
+              <h3>DXF_v16</h3>
+              <p>Batch DXF exporter for parts and assemblies with regular/precut modes, material naming, sheet metal handling, and output folders.</p>
+            </article>
+            <article class="macro-card">
+              <h3>DXF_v16_ROfriendly</h3>
+              <p>Read-only friendly DXF export variant with independent generated output for safer shared-project use.</p>
+            </article>
+            <article class="macro-card">
+              <h3>Radius_v9</h3>
+              <p>Adds automatic fillets to an open part or selected assembly components, either four outer corners or all eligible sharp edges.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="viewer" class="feature-section viewer-section" aria-labelledby="viewer-title">
+        <div class="section-shell split-layout reverse">
+          <figure class="screenshot-frame">
+            <img
+              src="assets/excelsis-dxf-viewer.png"
+              alt="ExcelsisView DXF viewer with selection edit mode, offset controls, and feature list"
+            >
+            <figcaption>ExcelsisView shows outlines, selected entities, file state, offsets, dimensions, and detected feature groups.</figcaption>
+          </figure>
+          <div class="copy-block">
+            <p class="eyebrow">ExcelsisView</p>
+            <h2 id="viewer-title">A focused DXF viewer and cleanup surface.</h2>
+            <p>
+              ExcelsisView opens manufacturing geometry on a dark grid, supports
+              selection edit and measure modes, and gives simple controls for
+              save/discard, dissolve, rebuild, fit, offset, and file stepping.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="excelsis3d" class="band excelsis3d-section" aria-labelledby="excelsis3d-title">
+        <div class="section-shell">
+          <div class="section-heading">
+            <p class="eyebrow">Excelsis3D - plans, experiments, dev help wanted</p>
+            <h2 id="excelsis3d-title">Image + prompt to parametric 3D model.</h2>
+            <p>
+              The longer-term goal is AI-assisted parametric modeling: a user
+              provides images, a prompt, bounding boxes, important dimensions,
+              thread sizes, and other constraints; an LLM/Codex/API workflow
+              helps turn that into editable CAD features.
+            </p>
+            <div class="inline-actions">
+              <a class="button primary" href="https://discord.gg/uJrSBQm68">Join the Excelsis3D dev Discord</a>
+            </div>
+          </div>
+
+          <div class="idea-grid">
+            <article class="idea-card wide">
+              <h3>Why start something new?</h3>
+              <p>
+                I first tried this through SOLIDWORKS automation. It partially
+                worked: a model was rebuilt from a few screenshots and prompts,
+                and later results improved enough that the idea still feels
+                possible with current models. The problem is that the SW API is
+                hard to steer cleanly for this kind of AI workflow, so I started
+                exploring a more open CAD engine path. I know efforts like
+                zoo.dev exist; the interest here is an open, hackable stack.
+              </p>
+            </article>
+            <article class="idea-card">
+              <h3>Current direction</h3>
+              <p>
+                A Dune3D-derived fork is the practical starting point: normal
+                sketch/extrude/cut/fillet workflows first, OCCT geometry, a
+                desktop UI, and a starting workflow functionally inspired by
+                SolidWorks and Onshape. The aim is an open codebase designed so
+                AI can create and edit features more directly.
+              </p>
+            </article>
+            <article class="idea-card">
+              <h3>Looking for people</h3>
+              <p>
+                I am interested in CAD-minded developers, AI coding people, and
+                anyone curious enough to help shape the architecture. A Discord
+                server is planned if enough people want to collaborate. Ideas
+                are welcome; future donations would be shared.
+              </p>
+            </article>
+          </div>
+
+          <div class="architecture-block">
+            <div>
+              <p class="eyebrow">Architecture idea</p>
+              <h3>Visible topology is not the engineering truth.</h3>
+              <p>
+                Excelsis3D is an experimental persistent-reference parametric
+                CAD architecture. The design separates primary engineering
+                geometry, hidden persistent references, and visible evaluated
+                geometry, so model intent survives operations that usually make
+                topology fragile.
+              </p>
+            </div>
+            <ul class="architecture-list">
+              <li>Fillets, chamfers, lofts, and blends preserve original hidden edges/intersections.</li>
+              <li>SEC geometry means adaptive, fallback-capable secondary geometry for transitions, tooling, export, cavities, and manufacturing.</li>
+              <li>Sketching, mating, dimensioning, and feature creation stay transparent to secondary geometry unless the user intentionally references it.</li>
+              <li>Future directions: semantic feature graphs, AI-assisted modeling, resilient regeneration, assemblies, CAM, and FEM.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-shell footer-layout">
+        <span>ExcelsisAutomation</span>
+        <span>No vendor logos or marks used. SOLIDWORKS is referenced only to describe integration context. <a href="LICENSE">GPL-3.0 license</a>.</span>
+      </div>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>

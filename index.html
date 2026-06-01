@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ExcelsisAutomation | Macros, DXF, and Excelsis3D Plans</title>
+    <title>ExcelsisAutomation | Automation, DXF Viewer, and Excelsis3D Plans</title>
     <meta
       name="description"
-      content="ExcelsisAutomation connects to SOLIDWORKS, tracks recent documents, runs local CAD macros, includes a DXF viewer, and links to the Excelsis3D open CAD plan."
+      content="ExcelsisAutomation connects to SOLIDWORKS, tracks recent documents, runs local CAD macros, provides a separate DXF viewer/editor, and links to the Excelsis3D open CAD plan."
     >
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -33,15 +33,16 @@
         >
         <div class="hero-wash" aria-hidden="true"></div>
         <div class="hero-content">
-          <p class="eyebrow">SOLIDWORKS macro runner and DXF workflow</p>
+          <p class="eyebrow">SOLIDWORKS automation and DXF workflow</p>
           <h1 id="hero-title">Excelsis Automation</h1>
           <p class="hero-copy">
-            A local CAD utility that connects to SOLIDWORKS, tracks recent
-            documents, runs useful macros, creates CAM folders, and gives DXF
-            output a quick visual/editing pass.
+            Two local CAD utilities: one for SOLIDWORKS-connected automation,
+            macro running, document search, and CAM helpers; one focused DXF
+            viewer/editor for checking and cleaning manufacturing geometry.
           </p>
           <div class="hero-actions" aria-label="Page sections">
-            <a class="button primary" href="downloads/Excelsis-0.5.33/Excelsis-Setup-0.5.33.exe" download>Download 0.5.33</a>
+            <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisAutomation-0.5.69-release.zip">Download Automation 0.5.69</a>
+            <a class="button secondary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisView-0.5.62-release.zip">Download DXF Viewer 0.5.62</a>
             <a class="button secondary" href="#excelsis3d">Excelsis3D Plans</a>
           </div>
         </div>
@@ -51,29 +52,47 @@
         <div class="section-shell compact-grid">
           <div>
             <p class="eyebrow">Current app</p>
-            <h2 id="automation-title">Recent documents, macros, and CAD session tools.</h2>
+            <h2 id="automation-title">Recent documents, macros, Doc Search, and CAM helpers.</h2>
           </div>
           <div class="compact-copy">
             <p>
-              While SOLIDWORKS is running, ExcelsisAutomation records recently
-              opened parts, assemblies, and drawings. Users can search/filter
-              the list, reopen documents, retry thumbnails, and keep the active
-              CAD session visible from one dashboard.
+              The current Automation build is 0.5.69. While SOLIDWORKS is
+              running, it records recently opened parts, assemblies, and
+              drawings; users can search/filter the grid, reopen documents,
+              refresh or retry thumbnails, and see the active CAD session from
+              one dashboard.
             </p>
             <p>
-              The Macro Runner reads `Documents\Excelsis\Macros`, converts
-              `.swb` sources to `.swp`, and exposes Run/description buttons for
-              the active macro set. Short descriptions for the public macros are
-              listed directly below the screenshots.
+              Macro Runner works from <code>Documents\ExcelsisAutomation\Macros</code>
+              and migrates older <code>Documents\Excelsis\Macros</code> content. It
+              runs local SWP macros, converts SWB sources to SWP, and stores
+              short descriptions for the visible macro cards.
             </p>
-            <div class="download-card" id="download">
-              <h3>Download installer</h3>
-              <p>
-                Version 0.5.33 is included in this repository together with its
-                macro folder, because the installer workflow expects the bundled
-                macros to be available beside it.
-              </p>
-              <a class="button primary" href="downloads/Excelsis-0.5.33/Excelsis-Setup-0.5.33.exe" download>Download Excelsis 0.5.33</a>
+            <p>
+              Newer tools include Doc Search with type filters for SOLIDWORKS,
+              DXF/DWG, PDF, MPF, and text files; Start CAM, Stop CAM, CAM
+              Reload, and Create CAM Folder sidebar buttons; SolidCAM add-in
+              discovery; UI/BOM language settings; and safe cache controls.
+            </p>
+            <div class="download-grid" id="download">
+              <article class="download-card">
+                <p class="download-meta">Release ZIP</p>
+                <h3>ExcelsisAutomation 0.5.69</h3>
+                <p>
+                  Contains the setup EXE, bundled SWB macros, and the sibling
+                  Automation app module folder used by the installer.
+                </p>
+                <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisAutomation-0.5.69-release.zip">Download Automation ZIP</a>
+              </article>
+              <article class="download-card">
+                <p class="download-meta">Separate app</p>
+                <h3>ExcelsisView 0.5.62</h3>
+                <p>
+                  Contains the DXF viewer/editor setup EXE and the sibling DXF
+                  app module folder used by the installer.
+                </p>
+                <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisView-0.5.62-release.zip">Download DXF Viewer ZIP</a>
+              </article>
             </div>
           </div>
         </div>
@@ -146,9 +165,17 @@
             <p class="eyebrow">ExcelsisView</p>
             <h2 id="viewer-title">A focused DXF viewer and cleanup surface.</h2>
             <p>
-              ExcelsisView opens manufacturing geometry on a dark grid, supports
-              selection edit and measure modes, and gives simple controls for
-              save/discard, dissolve, rebuild, fit, offset, and file stepping.
+              The current ExcelsisView build is 0.5.62. It opens DXF files on
+              a dark grid with previous/next folder stepping, save/discard
+              guards, file locking, selection edit, snapped measurement, offset
+              controls, feature lists, and direct editing for LINE, ARC,
+              CIRCLE, and LWPOLYLINE geometry.
+            </p>
+            <p>
+              It can dissolve recognized contours into raw entities, rebuild
+              features, delete selections, mirror a sibling DXF, repair noisy
+              outer contours as high-definition or arc-and-line outputs, and
+              overlay the original outline when reviewing fixed DXFs.
             </p>
           </div>
         </div>

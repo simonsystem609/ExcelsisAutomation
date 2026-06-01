@@ -5,13 +5,22 @@ Static one-page GitHub Pages site for ExcelsisAutomation and ExcelsisView.
 ## Focus
 
 - SOLIDWORKS-connected recent documents.
-- Macro runner for the local `Documents\Excelsis\Macros` folder.
+- Macro runner for `Documents\ExcelsisAutomation\Macros`, with migration from the older `Documents\Excelsis\Macros` folder.
+- Doc Search, CAM folder helpers, SolidCAM add-in controls, and safe thumbnail/index refresh tools.
 - Short macro descriptions for the public-facing macro set.
-- DXF viewer/editor for selection, offsets, measurement, and feature review.
+- Separate ExcelsisView DXF viewer/editor for selection, offsets, measurement, mirror, outer-contour repair, and feature review.
 - Compact Excelsis3D planning/dev-help section on the same scroll page.
-- Installer bundle at `downloads/Excelsis-0.5.33/`.
+- Current release ZIPs:
+  - `downloads/ExcelsisAutomation-0.5.69-release.zip`
+  - `downloads/ExcelsisView-0.5.62-release.zip`
 - Excelsis3D development Discord invite: `https://discord.gg/uJrSBQm68`.
 - GPL-3.0 license text in `LICENSE`.
+
+The Automation ZIP contains the setup EXE, `macros/`, and
+`app-modules/automation/`. The DXF ZIP contains the setup EXE and
+`app-modules/dxf/`. The page links to the ZIPs through GitHub raw URLs because
+large ZIPs are tracked by Git LFS and GitHub Pages does not serve LFS files
+directly.
 
 ## Files
 
@@ -21,7 +30,9 @@ Static one-page GitHub Pages site for ExcelsisAutomation and ExcelsisView.
 - `assets/excelsis-recent-documents.png` - recent documents screenshot.
 - `assets/excelsis-macro-runner.png` - macro runner screenshot.
 - `assets/excelsis-dxf-viewer.png` - DXF viewer screenshot.
-- `downloads/Excelsis-0.5.33/` - installer, blockmap, and bundled macro folder.
+- `downloads/ExcelsisAutomation-0.5.69-release.zip` - Automation installer folder ZIP.
+- `downloads/ExcelsisView-0.5.62-release.zip` - DXF viewer installer folder ZIP.
+- `.gitattributes` - tracks release ZIPs with Git LFS.
 - `.nojekyll` - tells GitHub Pages to publish the static files as-is.
 
 ## Publish

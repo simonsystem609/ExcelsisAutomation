@@ -11,7 +11,7 @@ Static one-page GitHub Pages site for ExcelsisAutomation and ExcelsisView.
 - Separate ExcelsisView DXF viewer/editor for selection, offsets, measurement, mirror, outer-contour repair, and feature review.
 - Compact Excelsis3D planning/dev-help section on the same scroll page.
 - Current release ZIPs:
-  - `downloads/ExcelsisAutomation-0.5.69-release.zip`
+  - `downloads/ExcelsisAutomation-0.5.73-release.zip`
   - `downloads/ExcelsisView-0.5.62-release.zip`
 - Excelsis3D development Discord invite: `https://discord.gg/uJrSBQm68`.
 - GPL-3.0 license text in `LICENSE`.
@@ -28,9 +28,10 @@ directly.
 - `styles.css` - responsive styling.
 - `script.js` - tiny header behavior.
 - `assets/excelsis-recent-documents.png` - recent documents screenshot.
+- `assets/excelsis-doc-search.png` - Doc Search screenshot.
 - `assets/excelsis-macro-runner.png` - macro runner screenshot.
 - `assets/excelsis-dxf-viewer.png` - DXF viewer screenshot.
-- `downloads/ExcelsisAutomation-0.5.69-release.zip` - Automation installer folder ZIP.
+- `downloads/ExcelsisAutomation-0.5.73-release.zip` - Automation installer folder ZIP.
 - `downloads/ExcelsisView-0.5.62-release.zip` - DXF viewer installer folder ZIP.
 - `.gitattributes` - tracks release ZIPs with Git LFS.
 - `.nojekyll` - tells GitHub Pages to publish the static files as-is.

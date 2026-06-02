@@ -6,7 +6,7 @@
     <title>ExcelsisAutomation | Automation, DXF Viewer, and Excelsis3D Plans</title>
     <meta
       name="description"
-      content="ExcelsisAutomation connects to SOLIDWORKS, tracks recent documents, runs local CAD macros, provides a separate DXF viewer/editor, and links to the Excelsis3D open CAD plan."
+      content="ExcelsisAutomation is a Windows companion app for SOLIDWORKS and SolidCAM: recent documents, Doc Search, macro running, CAM helpers, and a separate DXF viewer/editor."
     >
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -36,12 +36,12 @@
           <p class="eyebrow">SOLIDWORKS automation and DXF workflow</p>
           <h1 id="hero-title">Excelsis Automation</h1>
           <p class="hero-copy">
-            Two local CAD utilities: one for SOLIDWORKS-connected automation,
-            macro running, document search, and CAM helpers; one focused DXF
-            viewer/editor for checking and cleaning manufacturing geometry.
+            A Windows companion for SOLIDWORKS and SolidCAM work: keep recent
+            documents close, find related engineering files, run shop macros,
+            create CAM folders, control the CAM add-in, and review DXF output.
           </p>
           <div class="hero-actions" aria-label="Page sections">
-            <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisAutomation-0.5.69-release.zip">Download Automation 0.5.69</a>
+            <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisAutomation-0.5.73-release.zip">Download Automation 0.5.73</a>
             <a class="button secondary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisView-0.5.62-release.zip">Download DXF Viewer 0.5.62</a>
             <a class="button secondary" href="#excelsis3d">Excelsis3D Plans</a>
           </div>
@@ -56,33 +56,42 @@
           </div>
           <div class="compact-copy">
             <p>
-              The current Automation build is 0.5.69. While SOLIDWORKS is
-              running, it records recently opened parts, assemblies, and
-              drawings; users can search/filter the grid, reopen documents,
-              refresh or retry thumbnails, and see the active CAD session from
-              one dashboard.
+              The current Automation build is 0.5.73. It continuously checks
+              whether SOLIDWORKS is running, shows the foreground document and
+              path, copies the active document folder, and can close stray
+              SLDWORKS.exe orphan processes with diagnostic logging.
+            </p>
+            <p>
+              Recent SOLIDWORKS tracks files opened while the app is running:
+              parts, assemblies, drawings, and SolidCAM CAM-Part files. Tiles
+              can be searched, filtered, opened, refreshed, removed, or sent to
+              their containing folder, with thumbnail retry tools when Windows
+              or SOLIDWORKS does not supply a preview cleanly.
+            </p>
+            <p>
+              Doc Search indexes useful engineering files on local and network
+              locations, then searches by the active SOLIDWORKS document or a
+              typed phrase. It uses fuzzy names, numeric tokens, path hints,
+              and file-size similarity across SOLIDWORKS, SolidCAM, DXF/DWG,
+              PDF, MPF, and TXT files.
             </p>
             <p>
               Macro Runner works from <code>Documents\ExcelsisAutomation\Macros</code>
               and migrates older <code>Documents\Excelsis\Macros</code> content. It
-              runs local SWP macros, converts SWB sources to SWP, and stores
-              short descriptions for the visible macro cards.
-            </p>
-            <p>
-              Newer tools include Doc Search with type filters for SOLIDWORKS,
-              DXF/DWG, PDF, MPF, and text files; Start CAM, Stop CAM, CAM
-              Reload, and Create CAM Folder sidebar buttons; SolidCAM add-in
-              discovery; UI/BOM language settings; and safe cache controls.
+              runs local SWP macros, converts bundled SWB sources to SWP, and
+              stores short descriptions for visible macro cards. The sidebar
+              adds Start CAM, Stop CAM, CAM Reload, and Create CAM Folder
+              controls for the selected SolidCAM add-in.
             </p>
             <div class="download-grid" id="download">
               <article class="download-card">
                 <p class="download-meta">Release ZIP</p>
-                <h3>ExcelsisAutomation 0.5.69</h3>
+                <h3>ExcelsisAutomation 0.5.73</h3>
                 <p>
                   Contains the setup EXE, bundled SWB macros, and the sibling
                   Automation app module folder used by the installer.
                 </p>
-                <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisAutomation-0.5.69-release.zip">Download Automation ZIP</a>
+                <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisAutomation-0.5.73-release.zip">Download Automation ZIP</a>
               </article>
               <article class="download-card">
                 <p class="download-meta">Separate app</p>
@@ -106,6 +115,13 @@
               alt="Recent SOLIDWORKS documents grid with thumbnails, search, and filter controls"
             >
             <figcaption>Recent documents are collected from the live SOLIDWORKS session and can be searched or filtered.</figcaption>
+          </figure>
+          <figure class="screenshot-frame">
+            <img
+              src="assets/excelsis-doc-search.png"
+              alt="Doc Search results grid with file-type filter, indexed file status, and generic part and drawing tiles"
+            >
+            <figcaption>Doc Search finds similar engineering files from the active document or typed filename fragments.</figcaption>
           </figure>
           <figure class="screenshot-frame">
             <img

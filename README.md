@@ -1,10 +1,10 @@
 # ExcelsisAutomation GitHub Page
 
-Static one-page GitHub Pages site for ExcelsisAutomation and ExcelsisView.
+Static one-page GitHub Pages site for ExcelsisAutomation, a SOLIDWORKS workflow helper, and ExcelsisView.
 
 ## Focus
 
-- SOLIDWORKS-connected recent documents.
+- SOLIDWORKS workflow helper for recent documents, Doc Search, macros, CAM folders, and SolidCAM controls.
 - Macro runner for `Documents\ExcelsisAutomation\Macros`, with migration from the older `Documents\Excelsis\Macros` folder.
 - Doc Search, CAM folder helpers, SolidCAM add-in controls, and safe thumbnail/index refresh tools.
 - Short macro descriptions for the public-facing macro set.

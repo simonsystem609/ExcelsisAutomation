@@ -14,6 +14,7 @@ Static one-page GitHub Pages site for ExcelsisAutomation and ExcelsisView.
   - `downloads/ExcelsisAutomation-0.5.76-release.zip`
   - `downloads/ExcelsisView-0.5.62-release.zip`
 - Excelsis3D development Discord invite: `https://discord.gg/uJrSBQm68`.
+- Support link: `https://buymeacoffee.com/lakatos`.
 - GPL-3.0 license text in `LICENSE`.
 
 The Automation ZIP contains the setup EXE, `macros/`, and

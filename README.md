@@ -8,7 +8,7 @@ Static one-page GitHub Pages site for Excelsis Helper, a SOLIDWORKS workflow hel
 - Macro runner for `Documents\ExcelsisAutomation\Macros`, with migration from the older `Documents\Excelsis\Macros` folder.
 - Doc Search, CAM folder helpers, SolidCAM add-in controls, and safe thumbnail/index refresh tools.
 - Short macro descriptions for the public-facing macro set.
-- Separate ExcelsisView DXF viewer/editor for selection, offsets, measurement, mirror, outer-contour repair, and feature review.
+- Final public ExcelsisView DXF-only viewer/editor for selection, offsets, measurement, mirror, outer-contour repair, and feature review.
 - Compact Excelsis3D planning/dev-help section on the same scroll page.
 - Current release ZIPs:
   - `downloads/ExcelsisHelper-0.7.0-release.zip`
@@ -33,7 +33,7 @@ directly.
 - `assets/excelsis-macro-runner.png` - macro runner screenshot.
 - `assets/excelsis-dxf-viewer.png` - DXF viewer screenshot.
 - `downloads/ExcelsisHelper-0.7.0-release.zip` - Helper installer folder ZIP.
-- `downloads/ExcelsisView-0.5.62-release.zip` - DXF viewer installer folder ZIP.
+- `downloads/ExcelsisView-0.5.62-release.zip` - final DXF-only viewer installer folder ZIP.
 - `.gitattributes` - tracks release ZIPs with Git LFS.
 - `.nojekyll` - tells GitHub Pages to publish the static files as-is.
 

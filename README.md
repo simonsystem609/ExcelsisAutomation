@@ -12,7 +12,7 @@ Static one-page GitHub Pages site for Excelsis Helper, a SOLIDWORKS workflow hel
 - Compact Excelsis3D planning/dev-help section on the same scroll page.
 - Current releases:
   - `downloads/ExcelsisHelper-1.2.5-public.1-Setup.exe`
-  - `downloads/ExcelsisView-0.5.62-release.zip`
+  - `downloads/ExcelsisView-0.6.6-dxf-release.zip`
 - Excelsis3D development Discord invite: `https://discord.gg/uJrSBQm68`.
 - Support link: `https://buymeacoffee.com/lakatos`.
 - GPL-3.0 license text in `LICENSE`.
@@ -20,7 +20,9 @@ Static one-page GitHub Pages site for Excelsis Helper, a SOLIDWORKS workflow hel
 The Helper download is a sanitized public build with generic, editable example
 paths and project prefixes. It is a single self-contained per-machine setup EXE
 with bundled SWB macros. The DXF ZIP contains the setup EXE and
-`app-modules/dxf/`. The page links to both through GitHub raw URLs because
+the exact corresponding source, pinned dependency lockfile, build scripts,
+license notices, and checksums. The same source is published in `viewer/`.
+The page links to both downloads through GitHub raw URLs because
 the large files are tracked by Git LFS and GitHub Pages does not serve LFS
 files directly.
 
@@ -34,7 +36,9 @@ files directly.
 - `assets/excelsis-macro-runner.png` - macro runner screenshot.
 - `assets/excelsis-dxf-viewer.png` - DXF viewer screenshot.
 - `downloads/ExcelsisHelper-1.2.5-public.1-Setup.exe` - sanitized public Helper installer.
-- `downloads/ExcelsisView-0.5.62-release.zip` - final DXF-only viewer installer folder ZIP.
+- `downloads/ExcelsisView-0.6.6-dxf-release.zip` - source-complete DXF-only viewer release.
+- `downloads/ExcelsisView-0.6.6-dxf-release.zip.sha256` - public release checksum.
+- `viewer/` - exact ExcelsisView 0.6.6 source and build documentation.
 - `.gitattributes` - tracks release ZIPs and the Helper installer EXE with Git LFS.
 - `.nojekyll` - tells GitHub Pages to publish the static files as-is.
 

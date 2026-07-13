@@ -349,6 +349,12 @@ h3 {
   text-transform: uppercase;
 }
 
+.download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 code {
   padding: 1px 5px;
   border: 1px solid rgba(78, 203, 255, 0.22);

@@ -1,0 +1,99 @@
+{
+  "name": "excelsisview",
+  "version": "0.6.6",
+  "description": "Local DXF viewer and editor for Windows.",
+  "author": "Excelsis",
+  "license": "GPL-3.0-only",
+  "homepage": "https://simonsystem609.github.io/ExcelsisAutomation/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/simonsystem609/ExcelsisAutomation.git",
+    "directory": "viewer"
+  },
+  "main": "main.cjs",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "electron-winstaller@5.4.0": false
+  },
+  "scripts": {
+    "build:runtime": "install-electron",
+    "build:vendor": "node scripts/build-vendor.cjs",
+    "build:licenses": "node scripts/collect-licenses.cjs",
+    "verify": "node scripts/verify-release.cjs",
+    "pack": "npm run build:runtime && npm run build:vendor && npm run build:licenses && npm run verify && electron-builder --dir",
+    "dist": "npm run build:runtime && npm run build:vendor && npm run build:licenses && npm run verify && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "concaveman": "2.0.0",
+    "electron": "43.1.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.1",
+    "resedit": "3.0.2"
+  },
+  "build": {
+    "appId": "local.excelsis.view",
+    "productName": "ExcelsisView",
+    "asar": true,
+    "npmRebuild": false,
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json",
+      "modules/dxf/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon-dxf-256.png",
+        "to": "build/icon-dxf-256.png"
+      },
+      {
+        "from": "build/icon-dxf.ico",
+        "to": "build/icon-dxf.ico"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "SOURCE.md",
+        "to": "SOURCE.md"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "third_party/licenses",
+        "to": "third_party/licenses"
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "afterPack": "scripts/after-pack.cjs",
+    "fileAssociations": [
+      {
+        "ext": "dxf",
+        "name": "DXF Drawing",
+        "description": "DXF Drawing",
+        "icon": "build/icon-dxf.ico",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon-dxf.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "ExcelsisView-Setup-${version}.exe",
+      "shortcutName": "ExcelsisView"
+    }
+  }
+}

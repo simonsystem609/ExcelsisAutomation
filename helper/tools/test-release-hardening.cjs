@@ -1,0 +1,90 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const root = path.join(__dirname, "..");
+const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
+
+const main = read("main.cjs");
+const preload = read("preload.cjs");
+const html = read("automation.html");
+const installer = read("installer.nsh");
+const builder = read("electron-builder.yml");
+const bridge = read(path.join("scripts", "solidworks-bridge.ps1"));
+const docSearchWorker = read(path.join("scripts", "doc-search-worker.cjs"));
+const createCam = read(path.join("scripts", "automation-defaults", "create-cam-folder.ps1"));
+const convertMacros = read(path.join("scripts", "automation-defaults", "convert-swb-macros.ps1"));
+const embedded = read(path.join("scripts", "extract-embedded-preview.cjs"));
+const thumbnails = read(path.join("scripts", "extract-sw-thumbnails.ps1"));
+const crawlScrews = read(path.join("macros", "CrawlScrews_v1.swb"));
+const fuseAudit = read(path.join("tools", "audit-packaged-runtime.cjs"));
+const pkg = JSON.parse(read("package.json"));
+
+assert.equal((main.match(/ipcMain\.handle\(/g) || []).length, 1, "Only the trusted IPC wrapper may call ipcMain.handle directly.");
+assert.ok((main.match(/trustedIpcHandle\(/g) || []).length > 50, "All renderer IPC handlers should use the trusted wrapper.");
+assert.match(main, /frame !== sender\.mainFrame/);
+assert.match(main, /fileURLToPath\(senderUrl\)/);
+assert.doesNotMatch(main, /sandbox:\s*false/);
+assert.ok((main.match(/sandbox:\s*true/g) || []).length >= 2);
+assert.ok((main.match(/setWindowOpenHandler/g) || []).length >= 2);
+assert.ok((main.match(/will-navigate/g) || []).length >= 2);
+assert.match(main, /setPermissionRequestHandler/);
+assert.match(main, /setPermissionCheckHandler/);
+assert.match(html, /Content-Security-Policy/);
+assert.match(html, /object-src 'none'/);
+
+assert.match(main, /fs\.realpath\(requestedMacroPath\)/);
+assert.match(main, /isInsideFolderOrEqual\(realMacroPath, realMacroRoot\)/);
+assert.match(main, /const VBA_IDENTIFIER = \/\^\[A-Za-z\]/);
+assert.match(main, /validatedVbaIdentifier\(options\.moduleName/);
+assert.match(main, /validatedVbaIdentifier\(options\.procedureName/);
+assert.match(main, /automation:open-recent-doc"[\s\S]{0,300}authorizeRecentDocumentPath/);
+assert.match(main, /automation:open-doc-search-result"[\s\S]{0,300}authorizeDocSearchDocumentPath/);
+assert.match(main, /automation:add-recent-doc"[\s\S]{0,300}authorizeDocSearchDocumentPath/);
+assert.match(main, /automation:open-containing-folder"[\s\S]{0,300}authorizeKnownDocumentPath/);
+assert.match(main, /isWithinApprovedDocSearchRoot/);
+assert.match(main, /resolveConfiguredSolidCamTarget/);
+assert.match(main, /match a registered SolidCAM add-in/);
+assert.doesNotMatch(preload, /kill-sw-orphans|killSwOrphans/);
+assert.doesNotMatch(main, /kill-sw-orphans|"kill-orphans"|sw-addin-dialog-load/);
+assert.doesNotMatch(createCam, /Stop-Process|Reconcile-SolidWorksInstances/);
+assert.match(createCam, /\$candidateSource = "configured-root-search"/);
+assert.doesNotMatch(convertMacros, /Stop-Process|Reconcile-SolidWorksInstances/);
+assert.equal((bridge.match(/Stop-Process/g) || []).length, 1, "Only the health-gated full-session kill may terminate SOLIDWORKS.");
+assert.match(bridge, /\$Action -eq "kill-solidworks"/);
+
+assert.match(embedded, /MAX_PNG_BYTES/);
+assert.match(embedded, /MAX_PIXELS/);
+assert.match(embedded, /MAX_INFLATE_ATTEMPTS/);
+assert.match(thumbnails, /MaxEmbeddedImageBytes/);
+assert.match(thumbnails, /MaxDecodedPixels/);
+assert.match(thumbnails, /MaxDxfSegments/);
+assert.match(main, /utilityProcess\.fork\(docSearchWorkerPath\(\)/);
+assert.match(main, /utilityProcess\.fork\(modulePath, args/);
+assert.match(docSearchWorker, /process\.parentPort/);
+assert.doesNotMatch(main, /ELECTRON_RUN_AS_NODE/);
+assert.doesNotMatch(main, /const \{[^\n]*\bfork\b[^\n]*\} = require\("node:child_process"\)/);
+assert.doesNotMatch(docSearchWorker, /process\.send/);
+
+assert.doesNotMatch(installer, /\$DOCUMENTS/);
+assert.match(installer, /\$\{IfNot\} \$\{Silent\}/);
+assert.match(builder, /electronLanguages:[\s\S]*en-US[\s\S]*hu/);
+assert.match(builder, /runAsNode:\s*false/);
+assert.match(builder, /enableNodeOptionsEnvironmentVariable:\s*false/);
+assert.match(builder, /enableNodeCliInspectArguments:\s*false/);
+assert.match(builder, /enableEmbeddedAsarIntegrityValidation:\s*true/);
+assert.match(builder, /onlyLoadAppFromAsar:\s*true/);
+assert.match(builder, /grantFileProtocolExtraPrivileges:\s*false/);
+assert.match(fuseAudit, /WasmTrapHandlers/);
+assert.match(fuseAudit, /EXPECTED_FUSES = \["0", "0", "0", "0", "1", "1", "0", "0", "1"\]/);
+assert.match(pkg.version, /^1\.3\.1(?:-public\.1)?$/);
+assert.equal(pkg.devDependencies.electron, "42.6.1");
+
+assert.match(main, /local CAD diagnostic bundle/);
+assert.match(crawlScrews, /assistant-prompt\.txt/);
+assert.match(crawlScrews, /absolute document and/);
+assert.match(crawlScrews, /ConfirmDiagnosticCapture/);
+assert.match(crawlScrews, /vbYesNo \+ vbExclamation \+ vbDefaultButton2/);
+assert.ok(crawlScrews.indexOf("If Not ConfirmDiagnosticCapture() Then Exit Sub") < crawlScrews.indexOf("Set swApp = Application.SldWorks"));
+
+console.log("Renderer, IPC, process, installer, privacy, and thumbnail hardening tests passed.");

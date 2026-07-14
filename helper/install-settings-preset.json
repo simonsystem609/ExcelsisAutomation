@@ -1,0 +1,10 @@
+{
+  "format": "excelsis-helper-settings",
+  "formatVersion": 1,
+  "preset": {
+    "id": "public-generic",
+    "mergeMode": "fallback",
+    "description": "Public install preset. Generic application defaults remain in effect."
+  },
+  "settings": {}
+}

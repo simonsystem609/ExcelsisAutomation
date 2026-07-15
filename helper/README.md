@@ -1,4 +1,4 @@
-# Excelsis Helper 1.3.1-public.1
+# Excelsis Helper 1.3.3-public.1
 
 Windows Electron tray application for SOLIDWORKS and SolidCAM workflows:
 recent documents, macro launching, document search, work logging, thumbnails,
@@ -19,10 +19,22 @@ app-managed lists or configured search roots. SolidCAM load and unload
 operations are limited to the DLL and CLSID pair verified in the SOLIDWORKS
 add-in registry.
 
-Production fuses disable RunAsNode, NODE_OPTIONS, command-line inspection, and
-legacy file-protocol privileges. The app loads only its integrity-checked ASAR.
-Document indexing and embedded-preview extraction use isolated utility
-processes, preserving background EcoQoS behavior and thumbnail support.
+Production fuses disable RunAsNode, NODE_OPTIONS, and command-line inspection.
+The app loads only its integrity-checked ASAR. Electron's file-protocol
+privileges remain enabled because the packaged renderer itself is loaded from
+`app.asar` with `BrowserWindow.loadFile()`; disabling that fuse prevents the
+local HTML from loading. Document indexing and embedded-preview extraction use
+isolated utility processes, preserving background EcoQoS behavior and
+thumbnail support. Embedded previews process one CAD file per utility child so
+native decompression allocations are released between files.
+
+The Work Logger can hold active time for a new unsaved SOLIDWORKS document in
+memory. When that same document is saved to a non-excluded real path, at least
+one minute of provisional time is transferred to the saved filename and its
+project. Shorter sessions are discarded. Promotion requires a trusted
+watcher-local document identity; pending time is cleared on watcher reconnect,
+SOLIDWORKS disconnect, app restart, or work-log day reset rather than risking
+assignment to the wrong file.
 
 Background scripts never terminate SOLIDWORKS based on window-title guesses.
 The only process-termination command is the visible **Kill SW** action, which is

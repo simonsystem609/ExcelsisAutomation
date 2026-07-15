@@ -8,6 +8,11 @@ const path = require("node:path");
 const { fileURLToPath, pathToFileURL } = require("node:url");
 const { Worker } = require("node:worker_threads");
 const zlib = require("node:zlib");
+const {
+  DEFAULT_PROMOTION_MIN_MS: UNSAVED_PROJECT_ACTIVITY_PROMOTION_MIN_MS,
+  DEFAULT_MAX_PENDING_MS: UNSAVED_PROJECT_ACTIVITY_MAX_PENDING_MS,
+  UnsavedWorkTracker,
+} = require("./worklogger-unsaved.cjs");
 
 // --- Rolling diagnostic activity logger + Explorer health watchdog (1.1.5) -
 // Temporary/diagnostic feature. Records what the app's background
@@ -1183,12 +1188,14 @@ function embeddedPreviewScriptPath() {
 function runUtilityScriptCaptureStdout(modulePath, args, options = {}) {
   const timeoutMs = Math.max(1000, Number(options.timeoutMs || 120000));
   const maxOutputBytes = Math.max(1024, Number(options.maxOutputBytes || (8 * 1024 * 1024)));
+  const execArgv = Array.isArray(options.execArgv) ? options.execArgv.map((arg) => String(arg)) : [];
   return new Promise((resolve) => {
     let child;
     try {
       child = utilityProcess.fork(modulePath, args, {
         stdio: ["ignore", "pipe", "ignore"],
         serviceName: String(options.serviceName || "Excelsis Background Task"),
+        execArgv,
       });
     } catch (error) {
       resolve({ ok: false, stdout: "", error: String(error?.message || error), code: null });
@@ -1239,24 +1246,37 @@ async function runEmbeddedPreviewBatch(pairs) {
   const done = new Set();
   const boundedPairs = pairs.slice(0, THUMB_BATCH_FILE_LIMIT);
   if (!boundedPairs.length) return done;
-  // Named with the thumb-batch- prefix so pruneStaleThumbBatchFiles cleans it
-  // up if the child is force-killed before it returns.
-  const tmpJson = path.join(automationWorkdirRoot(), `thumb-batch-embed-${Date.now()}.json`);
-  try {
-    await fs.writeFile(tmpJson, JSON.stringify(boundedPairs.map((p) => ({ path: p.path, outPng: p.outPng }))), "utf8");
-    const childResult = await runUtilityScriptCaptureStdout(embeddedPreviewScriptPath(), [tmpJson], {
-      serviceName: "Excelsis Embedded Preview",
-      maxOutputBytes: 8 * 1024 * 1024,
-      timeoutMs: 120000,
-    });
+  const batchDeadline = Date.now() + 120000;
+  // zlib's failed raw-DEFLATE probes allocate native memory that is reclaimed
+  // reliably when the utility process exits. Isolate each CAD file so a batch
+  // cannot accumulate several gigabytes before V8 decides to collect it.
+  for (let index = 0; index < boundedPairs.length; index++) {
+    const remainingMs = batchDeadline - Date.now();
+    if (remainingMs < 1000) break;
+    const pair = boundedPairs[index];
+    // Named with the thumb-batch- prefix so startup cleanup can identify a
+    // file left behind if its utility process is terminated unexpectedly.
+    const tmpJson = path.join(
+      automationWorkdirRoot(),
+      `thumb-batch-embed-${Date.now()}-${process.pid}-${index}.json`,
+    );
     try {
-      const parsed = JSON.parse(childResult.stdout || "");
-      for (const r of (parsed?.results || [])) {
-        if (r?.ok && r.path) done.add(String(r.path).toLowerCase());
-      }
-    } catch {}
-  } catch {} finally {
-    fs.unlink(tmpJson).catch(() => {});
+      await fs.writeFile(tmpJson, JSON.stringify([{ path: pair.path, outPng: pair.outPng }]), "utf8");
+      const childResult = await runUtilityScriptCaptureStdout(embeddedPreviewScriptPath(), [tmpJson], {
+        serviceName: "Excelsis Embedded Preview",
+        maxOutputBytes: 256 * 1024,
+        timeoutMs: Math.min(25000, remainingMs),
+        execArgv: ["--max-old-space-size=192"],
+      });
+      try {
+        const parsed = JSON.parse(childResult.stdout || "");
+        for (const result of (parsed?.results || [])) {
+          if (result?.ok && result.path) done.add(String(result.path).toLowerCase());
+        }
+      } catch {}
+    } catch {} finally {
+      fs.unlink(tmpJson).catch(() => {});
+    }
   }
   return done;
 }
@@ -2780,7 +2800,15 @@ let lastWorkLoggerCounterStatus = {
   solidWorksForeground: false,
   recentlyForeground: false,
   userInputFresh: true,
+  provisional: false,
+  pendingUnsavedMs: 0,
+  promotionMinMs: UNSAVED_PROJECT_ACTIVITY_PROMOTION_MIN_MS,
 };
+const unsavedWorkTracker = new UnsavedWorkTracker({
+  promotionMinMs: UNSAVED_PROJECT_ACTIVITY_PROMOTION_MIN_MS,
+  maxSampleMs: SOLIDWORKS_PROJECT_ACTIVITY_MAX_SAMPLE_MS,
+  maxPendingMs: UNSAVED_PROJECT_ACTIVITY_MAX_PENDING_MS,
+});
 
 function shouldExcludeDocPath(docPath) {
   if (!docPath) return true;
@@ -3402,6 +3430,14 @@ function resetProjectActivityCache(reason = "manual") {
   };
   projectActivityDirty = true;
   resetProjectActivitySample();
+  const clearedUnsaved = unsavedWorkTracker.reset();
+  if (clearedUnsaved.clearedSessions) {
+    logActivity("worklogger-unsaved-reset", {
+      reason,
+      sessions: clearedUnsaved.clearedSessions,
+      pendingMs: Math.round(clearedUnsaved.clearedMs),
+    });
+  }
   return {
     reset: true,
     reason,
@@ -3503,9 +3539,10 @@ function scheduleProjectActivityMidnightReset() {
   if (typeof projectActivityMidnightTimer.unref === "function") projectActivityMidnightTimer.unref();
 }
 
-async function addProjectActivityTime(docPath, elapsedMs) {
+async function addProjectActivityDuration(docPath, elapsedMs, maxDurationMs) {
   const cleanPath = String(docPath || "").trim();
-  const ms = Math.max(0, Math.min(SOLIDWORKS_PROJECT_ACTIVITY_MAX_SAMPLE_MS, Number(elapsedMs || 0)));
+  const safeMaxMs = Math.max(1, Number(maxDurationMs || SOLIDWORKS_PROJECT_ACTIVITY_MAX_SAMPLE_MS));
+  const ms = Math.max(0, Math.min(safeMaxMs, Number(elapsedMs || 0)));
   if (!cleanPath || ms <= 0 || shouldExcludeDocPath(cleanPath)) return null;
   const projectName = projectNameFromDocPath(cleanPath);
   const key = projectActivityKey(projectName);
@@ -3541,6 +3578,14 @@ async function addProjectActivityTime(docPath, elapsedMs) {
   projectActivityDirty = true;
   scheduleProjectActivitySave();
   return next;
+}
+
+async function addProjectActivityTime(docPath, elapsedMs) {
+  return addProjectActivityDuration(docPath, elapsedMs, SOLIDWORKS_PROJECT_ACTIVITY_MAX_SAMPLE_MS);
+}
+
+async function addPromotedUnsavedProjectActivityTime(docPath, elapsedMs) {
+  return addProjectActivityDuration(docPath, elapsedMs, UNSAVED_PROJECT_ACTIVITY_MAX_PENDING_MS);
 }
 
 // Distinct SOLIDWORKS doc filenames worked on within a project, alphabetical.
@@ -4585,6 +4630,9 @@ function buildWorkLoggerCounterStatus(bridgeResult, decision, details = {}) {
     solidWorksForeground: Boolean(decision?.solidWorksForeground),
     recentlyForeground: Boolean(decision?.recentlyForeground),
     userInputFresh: Boolean(decision?.userInputFresh),
+    provisional: false,
+    pendingUnsavedMs: 0,
+    promotionMinMs: UNSAVED_PROJECT_ACTIVITY_PROMOTION_MIN_MS,
   };
 
   if (!bridgeResult?.ok || !bridgeResult?.connected) {
@@ -4636,6 +4684,44 @@ function buildWorkLoggerCounterStatus(bridgeResult, decision, details = {}) {
   return status;
 }
 
+function buildUnsavedWorkLoggerCounterStatus(bridgeResult, decision, details = {}) {
+  const doc = bridgeResult?.activeDocument || {};
+  const trusted = details.trusted === true;
+  const isCounting = Boolean(trusted && decision?.shouldCount);
+  const pauseMinutes = Number(decision?.pauseMinutes || DEFAULT_SOLIDWORKS_ACTIVITY_PAUSE_MINUTES);
+  const idleMs = Number.isFinite(Number(decision?.idleMs)) ? Number(decision.idleMs) : null;
+  let code = "unsaved-waiting";
+  let headline = "Unsaved document waiting";
+  let message = "Waiting for a trusted SOLIDWORKS watcher sample before holding time.";
+  if (trusted && isCounting) {
+    code = "counting-unsaved";
+    headline = "Tracking unsaved document";
+    message = "Time is held provisionally and will be added after this document is saved.";
+  } else if (trusted) {
+    code = "unsaved-paused";
+    headline = "Unsaved document paused";
+    message = "Pending time is preserved, but activity is currently paused.";
+  }
+  return {
+    updatedAt: Date.now(),
+    isCounting,
+    code,
+    headline,
+    message,
+    pauseMinutes,
+    projectName: "",
+    docPath: "",
+    docTitle: String(doc?.title || "").trim(),
+    idleMs,
+    solidWorksForeground: Boolean(decision?.solidWorksForeground),
+    recentlyForeground: Boolean(decision?.recentlyForeground),
+    userInputFresh: Boolean(decision?.userInputFresh),
+    provisional: trusted,
+    pendingUnsavedMs: Math.max(0, Math.round(Number(details.pendingMs || 0))),
+    promotionMinMs: UNSAVED_PROJECT_ACTIVITY_PROMOTION_MIN_MS,
+  };
+}
+
 function setWorkLoggerCounterStatus(status) {
   lastWorkLoggerCounterStatus = {
     ...lastWorkLoggerCounterStatus,
@@ -4661,6 +4747,16 @@ function rememberWorkLoggerCountableDocument(docPath, projectName, docTitle = ""
     docTitle: String(docTitle || path.basename(cleanPath) || "").trim(),
     projectName: cleanProject,
     projectKey: projectActivityKey(cleanProject),
+  };
+}
+
+function clearRememberedWorkLoggerDocument() {
+  lastWorkLoggerCountableDocument = {
+    at: 0,
+    docPath: "",
+    docTitle: "",
+    projectName: "",
+    projectKey: "",
   };
 }
 
@@ -4701,12 +4797,109 @@ async function trackProjectActivityFromStatus(bridgeResult, options = {}) {
   const doc = bridgeResult?.activeDocument;
   const docPath = String(doc?.path || "").trim();
   const excluded = Boolean(docPath && shouldExcludeDocPath(docPath));
+  const hasExplicitActiveDocument = Boolean(doc?.hasActiveDocument);
   const hasActiveCountableDoc = Boolean(doc?.hasActiveDocument && docPath && !excluded);
   const activeProjectName = hasActiveCountableDoc ? projectNameFromDocPath(docPath) : "";
+
+  const unsavedObservation = unsavedWorkTracker.observe({
+    now,
+    fromWatcher: bridgeResult?.fromWatcher === true,
+    connected: Boolean(bridgeResult?.connected && bridgeResult?.ok !== false),
+    watcherSessionId: bridgeResult?.watcherSessionId,
+    hasActiveDocument: hasExplicitActiveDocument,
+    documentToken: doc?.documentToken,
+    identityTrusted: doc?.identityTrusted === true,
+    docPath,
+    docTitle: doc?.title,
+    docType: doc?.type,
+    shouldCount: decision.shouldCount === true,
+    eligibleSavedPath: hasActiveCountableDoc,
+  });
+
+  if (hasExplicitActiveDocument && !docPath) {
+    clearRememberedWorkLoggerDocument();
+    lastProjectActivitySample = { at: now, docPath: "", projectKey: "" };
+    const trusted = unsavedObservation.kind === "unsaved";
+    const counterStatus = setWorkLoggerCounterStatus(buildUnsavedWorkLoggerCounterStatus(
+      bridgeResult,
+      decision,
+      {
+        trusted,
+        pendingMs: trusted ? unsavedObservation.pendingMs : 0,
+      },
+    ));
+    return {
+      ...decision,
+      elapsedMs: trusted ? unsavedObservation.elapsedMs : 0,
+      pendingUnsavedMs: trusted ? unsavedObservation.pendingMs : 0,
+      promotionMinMs: UNSAVED_PROJECT_ACTIVITY_PROMOTION_MIN_MS,
+      projectName: "",
+      counted: false,
+      isCounting: Boolean(trusted && decision.shouldCount),
+      provisional: trusted,
+      counterStatus,
+    };
+  }
+
   if (hasActiveCountableDoc) {
     rememberWorkLoggerCountableDocument(docPath, activeProjectName, doc?.title || "");
   }
-  const graceDoc = hasActiveCountableDoc ? null : graceWorkLoggerDocument(decision, now);
+
+  if (["promote", "discard", "held-ineligible"].includes(unsavedObservation.kind)) {
+    let project = null;
+    if (unsavedObservation.kind === "promote") {
+      project = await addPromotedUnsavedProjectActivityTime(docPath, unsavedObservation.promoteMs);
+      logActivity("worklogger-unsaved-promoted", {
+        docName: path.basename(docPath),
+        promotedMs: Math.round(Number(unsavedObservation.promoteMs || 0)),
+        projectName: activeProjectName,
+        committed: Boolean(project),
+      });
+    } else if (unsavedObservation.kind === "discard") {
+      logActivity("worklogger-unsaved-discarded", {
+        reason: unsavedObservation.reason,
+        discardedMs: Math.round(Number(unsavedObservation.discardedMs || 0)),
+      });
+    }
+
+    const projectKey = hasActiveCountableDoc ? projectActivityKey(activeProjectName) : "";
+    lastProjectActivitySample = hasActiveCountableDoc && decision.shouldCount
+      ? { at: now, docPath, projectKey }
+      : { at: now, docPath: "", projectKey: "" };
+    const counterStatus = setWorkLoggerCounterStatus({
+      ...buildWorkLoggerCounterStatus(bridgeResult, decision, {
+        docPath,
+        projectName: activeProjectName,
+        excluded,
+      }),
+      promotedUnsavedMs: unsavedObservation.kind === "promote"
+        ? Math.round(Number(unsavedObservation.promoteMs || 0))
+        : 0,
+      discardedUnsavedMs: unsavedObservation.kind === "discard"
+        ? Math.round(Number(unsavedObservation.discardedMs || 0))
+        : 0,
+      heldUnsavedMs: unsavedObservation.kind === "held-ineligible"
+        ? Math.round(Number(unsavedObservation.pendingMs || 0))
+        : 0,
+      totalMs: project ? Math.round(Number(project.totalMs || 0)) : 0,
+    });
+    return {
+      ...decision,
+      elapsedMs: Math.round(Number(unsavedObservation.elapsedMs || 0)),
+      promotedUnsavedMs: unsavedObservation.kind === "promote"
+        ? Math.round(Number(unsavedObservation.promoteMs || 0))
+        : 0,
+      projectName: activeProjectName,
+      counted: Boolean(project),
+      isCounting: Boolean(hasActiveCountableDoc && decision.shouldCount),
+      totalMs: project ? Math.round(Number(project.totalMs || 0)) : 0,
+      counterStatus,
+    };
+  }
+
+  const graceDoc = hasActiveCountableDoc || hasExplicitActiveDocument
+    ? null
+    : graceWorkLoggerDocument(decision, now);
   const effectiveDocPath = hasActiveCountableDoc ? docPath : String(graceDoc?.docPath || "");
   const effectiveProjectName = hasActiveCountableDoc ? activeProjectName : String(graceDoc?.projectName || "");
   const hasCountableDoc = Boolean(hasActiveCountableDoc || graceDoc);
@@ -4985,27 +5178,34 @@ const SETTINGS_FILE_MAX_BYTES = 1024 * 1024;
 const SETTINGS_BLOCKED_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
 function isPlainSettingsObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return Boolean(value)
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.prototype.toString.call(value) === "[object Object]";
 }
 
 function mergeSettingsLayers(...layers) {
-  const mergeInto = (target, source) => {
-    if (!isPlainSettingsObject(source)) return target;
+  const mergeObjects = (target, source) => {
+    const entries = new Map(Object.entries(isPlainSettingsObject(target) ? target : {}));
+    if (!isPlainSettingsObject(source)) return Object.fromEntries(entries);
     for (const [key, value] of Object.entries(source)) {
       if (SETTINGS_BLOCKED_KEYS.has(key)) continue;
+      let nextValue;
       if (Array.isArray(value)) {
-        target[key] = value.map((item) => (
-          isPlainSettingsObject(item) ? mergeInto({}, item) : item
+        nextValue = value.map((item) => (
+          isPlainSettingsObject(item) ? mergeObjects({}, item) : item
         ));
       } else if (isPlainSettingsObject(value)) {
-        target[key] = mergeInto(isPlainSettingsObject(target[key]) ? target[key] : {}, value);
+        const current = entries.get(key);
+        nextValue = mergeObjects(isPlainSettingsObject(current) ? current : {}, value);
       } else {
-        target[key] = value;
+        nextValue = value;
       }
+      entries.set(key, nextValue);
     }
-    return target;
+    return Object.fromEntries(entries);
   };
-  return layers.reduce((result, layer) => mergeInto(result, layer), {});
+  return layers.reduce((result, layer) => mergeObjects(result, layer), {});
 }
 
 function migrateSettingsAliases(settings) {
@@ -6257,6 +6457,7 @@ function assembleStatusFromWatcher(watcher, activity) {
   return {
     ok: true,
     connected: true,
+    watcherSessionId: String(watcher.watcherSessionId || ""),
     activeDocument: watcher.activeDocument || { hasActiveDocument: false },
     openDocuments: Array.isArray(watcher.openDocuments) ? watcher.openDocuments : [],
     windowsActivity,
@@ -6317,6 +6518,7 @@ function cacheDisconnectedSolidWorksStatus(snapshot) {
   };
   lastSolidWorksStatusAt = Date.now();
   lastProjectActivitySample = { at: 0, docPath: "", projectKey: "" };
+  unsavedWorkTracker.reset();
 }
 
 async function solidWorksHeartbeatTick() {

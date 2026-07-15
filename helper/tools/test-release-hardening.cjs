@@ -74,10 +74,13 @@ assert.match(builder, /enableNodeOptionsEnvironmentVariable:\s*false/);
 assert.match(builder, /enableNodeCliInspectArguments:\s*false/);
 assert.match(builder, /enableEmbeddedAsarIntegrityValidation:\s*true/);
 assert.match(builder, /onlyLoadAppFromAsar:\s*true/);
-assert.match(builder, /grantFileProtocolExtraPrivileges:\s*false/);
+assert.match(builder, /grantFileProtocolExtraPrivileges:\s*true/);
 assert.match(fuseAudit, /WasmTrapHandlers/);
-assert.match(fuseAudit, /EXPECTED_FUSES = \["0", "0", "0", "0", "1", "1", "0", "0", "1"\]/);
-assert.match(pkg.version, /^1\.3\.1(?:-public\.1)?$/);
+assert.match(fuseAudit, /EXPECTED_FUSES = \["0", "0", "0", "0", "1", "1", "0", "1", "1"\]/);
+assert.match(main, /execArgv:\s*\["--max-old-space-size=192"\]/);
+assert.match(main, /JSON\.stringify\(\[\{ path: pair\.path, outPng: pair\.outPng \}\]\)/);
+assert.match(embedded, /MAX_BATCH_ITEMS = 1/);
+assert.match(pkg.version, /^1\.3\.3(?:-public\.1)?$/);
 assert.equal(pkg.devDependencies.electron, "42.6.1");
 
 assert.match(main, /local CAD diagnostic bundle/);

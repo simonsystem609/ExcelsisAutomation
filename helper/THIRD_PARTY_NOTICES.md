@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This file covers Excelsis Helper 1.3.1-public.1. Project-owned material is
+This file covers Excelsis Helper 1.3.3-public.1. Project-owned material is
 licensed under GPL-3.0-only in `LICENSE`. Components listed below remain under
 their respective licenses.
 
@@ -74,8 +74,8 @@ known redistributed runtime components are preserved above and in `licenses/`.
 ## Project Assets and Macros
 
 The Excelsis icon files and all bundled SWB macros are project-owned works and
-are distributed under GPL-3.0-only in this release. Their provenance and hashes
-are recorded in `docs/PROVENANCE.md`.
+are distributed under GPL-3.0-only in this release. Their provenance is
+recorded in `docs/PROVENANCE.md`.
 
 SOLIDWORKS and SolidCAM application files, SDK binaries, and program DLLs are
 not redistributed. API names are used only to describe interoperability; no

@@ -4,7 +4,7 @@
 
 Security fixes are considered for the latest public releases:
 
-- Excelsis Helper `1.3.1-public.1`
+- Excelsis Helper `1.3.3-public.1`
 - ExcelsisView `0.6.6`
 
 Older releases may not receive security updates.

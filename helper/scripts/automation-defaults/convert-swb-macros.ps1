@@ -1,4 +1,4 @@
-# Excelsis-Default-Version: 1.3.1
+# Excelsis-Default-Version: 1.3.2
 # Converts .swb macros to .swp by driving SOLIDWORKS' Edit Macro dialog
 # in batch. PROVEN flow (sandbox-verified on SW 2025 / Win 11):
 #

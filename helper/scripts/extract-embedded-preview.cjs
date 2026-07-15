@@ -15,7 +15,9 @@ const MAX_PNG_BYTES = 2 * 1024 * 1024;
 const MAX_DIMENSION = 4096;
 const MAX_PIXELS = 16 * 1024 * 1024;
 const MAX_INPUT_JSON_BYTES = 1024 * 1024;
-const MAX_BATCH_ITEMS = 32;
+// Main launches one utility process per CAD file so failed inflate probes
+// cannot retain native allocations across a large thumbnail batch.
+const MAX_BATCH_ITEMS = 1;
 const MAX_PATH_CHARS = 32767;
 
 function validatedPng(png) {

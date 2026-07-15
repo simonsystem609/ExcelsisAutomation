@@ -40,6 +40,14 @@ assert.equal(Object.prototype.hasOwnProperty.call(layered.hotkeys, "sztTemplate"
 const polluted = mergeSettingsLayers(JSON.parse('{"__proto__":{"polluted":true}}'));
 assert.equal(polluted.polluted, undefined);
 assert.equal({}.polluted, undefined);
+const nestedPolluted = mergeSettingsLayers(JSON.parse(
+  '{"hotkeys":{"constructor":{"prototype":{"polluted":true}},"enabled":true},"items":[{"__proto__":{"polluted":true},"ok":1}]}'
+));
+assert.equal(nestedPolluted.hotkeys.enabled, true);
+assert.equal(Object.prototype.hasOwnProperty.call(nestedPolluted.hotkeys, "constructor"), false);
+assert.equal(nestedPolluted.items[0].ok, 1);
+assert.equal(Object.prototype.hasOwnProperty.call(nestedPolluted.items[0], "__proto__"), false);
+assert.equal({}.polluted, undefined);
 
 const prefixContext = {};
 vm.createContext(prefixContext);

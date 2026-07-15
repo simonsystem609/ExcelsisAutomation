@@ -22,8 +22,9 @@ afterPack: scripts/after-pack.cjs
 
 # Production hardening. Cookie encryption and a browser-only V8 snapshot stay
 # off because the app has no cookie-backed sessions and ships one shared
-# snapshot. The file renderer uses only same-origin bundled assets, so it does
-# not need Electron's legacy file:// fetch, service-worker, or child-frame powers.
+# snapshot. The renderer is loaded from app.asar with BrowserWindow.loadFile(),
+# so Electron's file-protocol privileges must remain enabled; disabling that
+# fuse makes Electron 42.6.1 reject the packaged HTML with ERR_FILE_NOT_FOUND.
 # Electron 42's ninth WasmTrapHandlers fuse intentionally remains enabled: its
 # guard-page implementation is lighter than explicit bounds checks. The release
 # audit reads all nine slots because the bundled fuse library configures eight.
@@ -35,10 +36,11 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
   loadBrowserProcessSpecificV8Snapshot: false
-  grantFileProtocolExtraPrivileges: false
+  grantFileProtocolExtraPrivileges: true
 
 files:
   - main.cjs
+  - worklogger-unsaved.cjs
   - preload.cjs
   - package.json
   - automation.html

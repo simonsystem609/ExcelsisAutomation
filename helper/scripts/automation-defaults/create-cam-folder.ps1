@@ -1,4 +1,4 @@
-# Excelsis-Default-Version: 1.3.1
+# Excelsis-Default-Version: 1.3.2
 # Creates a configured CAM folder for the active SOLIDWORKS part/component.
 param(
   [string]$OutputDrive = "C:\CAM",

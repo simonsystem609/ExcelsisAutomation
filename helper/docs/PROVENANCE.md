@@ -1,6 +1,6 @@
 # Source and Asset Provenance
 
-This inventory covers Excelsis Helper 1.3.1-public.1.
+This inventory covers Excelsis Helper 1.3.3-public.1.
 
 ## Project-owned work
 

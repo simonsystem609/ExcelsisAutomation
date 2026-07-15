@@ -1433,13 +1433,27 @@ function renderWorkLoggerCountingStatus(counter = null) {
   if (!ui.workLoggerCountingStatus) return;
   const status = counter || workLoggerState.counterStatus || {};
   const isCounting = Boolean(status.isCounting);
-  const headline = status.headline || (isCounting ? "Counting now" : "Nothing is being counted");
-  const message = status.message || (isCounting
+  let headline = status.headline || (isCounting ? "Counting now" : "Nothing is being counted");
+  let message = status.message || (isCounting
     ? "Counting the active SOLIDWORKS document."
     : "Nothing is being counted. Waiting for SOLIDWORKS activity.");
+  if (status.code === "counting-unsaved") {
+    headline = t("Tracking unsaved document");
+    message = t("Time is held provisionally and will be added after this document is saved.");
+  } else if (status.code === "unsaved-paused") {
+    headline = t("Unsaved document paused");
+    message = t("Pending time is preserved, but activity is currently paused.");
+  } else if (status.code === "unsaved-waiting") {
+    headline = t("Unsaved document waiting");
+    message = t("Waiting for a trusted SOLIDWORKS watcher sample before holding time.");
+  }
   const meta = [];
   if (status.projectName) meta.push(`Project: ${status.projectName}`);
   if (status.docTitle) meta.push(`Document: ${status.docTitle}`);
+  if (status.provisional) {
+    meta.push(`${t("Pending")}: ${formatShortDuration(status.pendingUnsavedMs)}`);
+    meta.push(`${t("Save threshold")}: ${formatShortDuration(status.promotionMinMs)}`);
+  }
   if (!isCounting && status.pauseMinutes) meta.push(`Grace: ${status.pauseMinutes} min`);
   if (status.idleMs != null && !isCounting) {
     const idleText = formatShortDuration(status.idleMs);
@@ -1887,6 +1901,17 @@ const I18N_HU = {
   "Waiting for SOLIDWORKS activity status.": "Várakozás a SOLIDWORKS aktivitási állapotra.",
   "Project time is counted while SOLIDWORKS is active, using the Settings grace period.":
     "A projektidő számolása a SOLIDWORKS aktív állapotában történik, a Beállítások türelmi idejét használva.",
+  "Tracking unsaved document": "Nem mentett dokumentum követése",
+  "Unsaved document paused": "A nem mentett dokumentum követése szünetel",
+  "Unsaved document waiting": "A nem mentett dokumentum várakozik",
+  "Time is held provisionally and will be added after this document is saved.":
+    "Az idő ideiglenesen gyűlik, és a dokumentum mentése után kerül hozzáadásra.",
+  "Pending time is preserved, but activity is currently paused.":
+    "A függő idő megmarad, de az aktivitás követése jelenleg szünetel.",
+  "Waiting for a trusted SOLIDWORKS watcher sample before holding time.":
+    "Várakozás megbízható SOLIDWORKS figyelőmintára az idő gyűjtése előtt.",
+  "Pending": "Függő",
+  "Save threshold": "Mentési küszöb",
   "Skip tonight": "Ma este kihagyása",
   // Export dialog
   "Export Work Logs": "Munkaidő-naplók exportálása",

@@ -71,7 +71,7 @@ try {
 
   const batchPath = path.join(tempDir, "batch.json");
   fs.writeFileSync(batchPath, JSON.stringify(Array.from({ length: 40 }, (_, index) => ({ path: String(index) }))));
-  assert.equal(readBatch(batchPath).length, 32);
+  assert.equal(readBatch(batchPath).length, 1);
 
   const oversizedBatchPath = path.join(tempDir, "oversized.json");
   fs.writeFileSync(oversizedBatchPath, Buffer.alloc((1024 * 1024) + 1, 0x20));

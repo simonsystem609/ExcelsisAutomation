@@ -17,7 +17,7 @@ const FUSE_NAMES = [
   "GrantFileProtocolExtraPrivileges",
   "WasmTrapHandlers",
 ];
-const EXPECTED_FUSES = ["0", "0", "0", "0", "1", "1", "0", "0", "1"];
+const EXPECTED_FUSES = ["0", "0", "0", "0", "1", "1", "0", "1", "1"];
 
 function readFuseWire(executable) {
   const sentinelAt = executable.indexOf(FUSE_SENTINEL);

@@ -36,24 +36,26 @@ for this NSIS build and remains unapproved.
 
 Do not launch the application merely to inspect a package. The build creates:
 
-- dist\Excelsis Helper-Setup-1.3.1-public.1.exe
-- dist\Excelsis Helper-Setup-1.3.1-public.1.exe.blockmap
+- dist\Excelsis Helper-Setup-1.3.3-public.1.exe
+- dist\Excelsis Helper-Setup-1.3.3-public.1.exe.blockmap
 - dist\win-unpacked\
 
 ## Non-launching verification
 
 ~~~powershell
-Get-FileHash -Algorithm SHA256 '.\dist\Excelsis Helper-Setup-1.3.1-public.1.exe'
-Get-AuthenticodeSignature '.\dist\Excelsis Helper-Setup-1.3.1-public.1.exe'
+Get-FileHash -Algorithm SHA256 '.\dist\Excelsis Helper-Setup-1.3.3-public.1.exe'
+Get-AuthenticodeSignature '.\dist\Excelsis Helper-Setup-1.3.3-public.1.exe'
 node -e "const a=require('@electron/asar'); const p=JSON.parse(a.extractFile('dist/win-unpacked/resources/app.asar','package.json')); console.log(p.version)"
 node tools\audit-packaged-runtime.cjs "dist\win-unpacked\Excelsis Helper.exe"
 ~~~
 
 The packaged-runtime audit verifies all nine Electron fuse slots and recomputes
 the embedded SHA-256 hash of the app.asar header. WasmTrapHandlers remains
-enabled for its lower compile-time, code-size, and runtime overhead. Legacy
-file-protocol privileges are disabled because the renderer uses no file fetch,
-service worker, webview, iframe, or child window.
+enabled for its lower compile-time, code-size, and runtime overhead. The
+file-protocol privilege fuse is enabled because `BrowserWindow.loadFile()`
+loads the packaged renderer from `app.asar`; an isolated packaged smoke test
+confirmed that disabling it fails with `ERR_FILE_NOT_FOUND`. CSP, sandboxing,
+context isolation, navigation denial, and trusted IPC remain enforced.
 
 The unpacked runtime should contain only en-US.pak and hu.pak under locales.
 Hardware acceleration is disabled, and the after-pack hook removes the five

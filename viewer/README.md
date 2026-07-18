@@ -1,6 +1,6 @@
 # ExcelsisView
 
-ExcelsisView is a local Windows desktop application for viewing and editing DXF drawings. This public source tree contains the DXF application only. It is the 0.6.7 source candidate; the current public binary release remains 0.6.6 until an installed 0.6.7 build is tested and expressly promoted.
+ExcelsisView is a local Windows desktop application for viewing and editing DXF drawings. This public source tree contains the DXF application only and is the complete corresponding source for the 0.6.7 public release.
 
 ## Included functionality
 
@@ -19,6 +19,6 @@ The native x64 Explorer thumbnail provider has a separate, tighter 32 MiB input 
 
 ## Source and license
 
-The project is licensed under GPL-3.0-only. Candidate corresponding source, pinned dependency metadata, build instructions, and third-party notices are included here. A future 0.6.7 release archive must include this exact audited source. See [BUILDING.md](BUILDING.md), [SOURCE.md](SOURCE.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The project is licensed under GPL-3.0-only. Complete corresponding source, pinned dependency metadata, build instructions, and third-party notices are included here and in the tagged 0.6.7 source archive. See [BUILDING.md](BUILDING.md), [SOURCE.md](SOURCE.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Local candidate installers are unsigned. No 0.6.7 installer, checksum, tag, or GitHub Release is currently public.
+The 0.6.7 installer is unsigned, so Windows may show an unknown-publisher warning. Installer, exact source, blockmap, and checksums are published on the immutable `excelsis-view-v0.6.7` GitHub Release.

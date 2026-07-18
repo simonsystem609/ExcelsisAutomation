@@ -45,7 +45,7 @@
           </p>
           <div class="hero-actions" aria-label="Page sections">
             <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/releases/download/excelsis-helper-v1.4.1-public.1/ExcelsisHelper-1.4.1-public.1-Setup.exe">Download Helper 1.4.1 public build</a>
-            <a class="button secondary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisView-0.6.6-dxf-release.zip">Download DXF Viewer 0.6.6</a>
+            <a class="button secondary" href="https://github.com/simonsystem609/ExcelsisAutomation/releases/download/excelsis-view-v0.6.7/ExcelsisView-Setup-0.6.7.exe">Download DXF Viewer 0.6.7</a>
             <a class="button secondary" href="#excelsis3d">Excelsis3D Plans</a>
           </div>
           <div class="support-note" aria-label="Support development">
@@ -133,17 +133,20 @@
                 </div>
               </article>
               <article class="download-card">
-                <p class="download-meta">Source-complete DXF-only build</p>
-                <h3>ExcelsisView 0.6.6</h3>
+                <p class="download-meta">DXF-only Windows installer</p>
+                <h3>ExcelsisView 0.6.7</h3>
                 <p>
-                  Contains the Windows installer, exact corresponding source,
-                  pinned dependency lockfile, build scripts, license notices,
-                  audit record, and checksums.
+                  Publishes the Windows installer with exact corresponding
+                  source, pinned dependency lockfile, build scripts, license
+                  notices, native thumbnail-provider source, and checksums.
+                  The installer is unsigned, so Windows may show an
+                  unknown-publisher warning.
                 </p>
                 <div class="download-actions">
-                  <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisView-0.6.6-dxf-release.zip">Download DXF Viewer ZIP</a>
-                  <a class="button secondary" href="https://github.com/simonsystem609/ExcelsisAutomation/tree/main/viewer">View source</a>
-                  <a class="button secondary" href="https://github.com/simonsystem609/ExcelsisAutomation/raw/main/downloads/ExcelsisView-0.6.6-dxf-release.zip.sha256">SHA-256</a>
+                  <a class="button primary" href="https://github.com/simonsystem609/ExcelsisAutomation/releases/download/excelsis-view-v0.6.7/ExcelsisView-Setup-0.6.7.exe">Download DXF Viewer</a>
+                  <a class="button secondary" href="https://github.com/simonsystem609/ExcelsisAutomation/releases/download/excelsis-view-v0.6.7/ExcelsisView-0.6.7-source.zip">Download source ZIP</a>
+                  <a class="button secondary" href="https://github.com/simonsystem609/ExcelsisAutomation/tree/excelsis-view-v0.6.7/viewer">View source</a>
+                  <a class="button secondary" href="https://github.com/simonsystem609/ExcelsisAutomation/releases/download/excelsis-view-v0.6.7/ExcelsisView-0.6.7-SHA256SUMS.txt">SHA-256</a>
                 </div>
               </article>
             </div>
@@ -229,11 +232,16 @@
             <p class="eyebrow">ExcelsisView</p>
             <h2 id="viewer-title">A focused DXF viewer and cleanup surface.</h2>
             <p>
-              ExcelsisView 0.6.6 is the source-complete public DXF-only build. It opens
+              ExcelsisView 0.6.7 is the source-complete public DXF-only build. It opens
               DXF files on a dark grid with previous/next folder stepping,
               save/discard guards, file locking, selection edit, snapped
               measurement, offset controls, feature lists, and direct editing
               for LINE, ARC, CIRCLE, and LWPOLYLINE geometry.
+            </p>
+            <p>
+              It also registers a bounded, read-only Windows Explorer thumbnail
+              provider for supported ASCII DXF drawings without launching the
+              desktop application.
             </p>
             <p>
               It can dissolve recognized contours into raw entities, rebuild

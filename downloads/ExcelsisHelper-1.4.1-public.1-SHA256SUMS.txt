@@ -1,0 +1,3 @@
+536b44419ff86777a23d1850d74fdc6d94128e989a2ab47aba1431a36d68fa13  ExcelsisHelper-1.4.1-public.1-Setup.exe
+d7e137dfa9d5e0239858e52be3d061539bccef2a07e566ee26bf18e314858f6f  ExcelsisHelper-1.4.1-public.1-Setup.exe.blockmap
+75b52e44fe70319652539aa5bea15860e517f34e8ba7e78bbea89539a27d8a9f  ExcelsisHelper-1.4.1-public.1-source.zip

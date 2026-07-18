@@ -326,7 +326,7 @@
     },
     listMacroTiles: async () => ({ ok: true, root: "C:\\Demo\\Macros", tiles: clone(macroTiles) }),
     pickSidebarImage: async () => ({ ok: false }),
-    getAppVersion: async () => "1.3.9",
+    getAppVersion: async () => "1.4.1",
     cacheStats: async () => ({
       ok: true,
       formattedTotalBytes: "0 B",

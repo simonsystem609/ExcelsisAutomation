@@ -10,6 +10,7 @@ namespace excelsis::thumbnail {
 constexpr std::size_t kMaxInputBytes = 32u * 1024u * 1024u;
 constexpr std::size_t kMaxPairs = 250000u;
 constexpr std::size_t kMaxEntities = 30000u;
+constexpr std::size_t kMaxFlattenWork = 200000u;
 constexpr std::size_t kMaxRenderPoints = 200000u;
 constexpr UINT kMaxThumbnailPixels = 2048u;
 

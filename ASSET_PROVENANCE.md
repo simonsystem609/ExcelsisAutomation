@@ -1,6 +1,6 @@
 # Public Asset Provenance
 
-This record covers the Helper screenshots served by the repository root.
+This record covers the project-owned screenshots served by the repository root.
 
 ## Excelsis Helper screenshots
 
@@ -27,3 +27,16 @@ appears in these replacement screenshots.
 
 The capture source and mock data are included in corresponding source, so the
 screens can be regenerated and reviewed without an installed Helper instance.
+
+## ExcelsisView screenshot
+
+`assets/excelsis-dxf-viewer.png` is a project-owned application screenshot
+captured and supplied by the repository owner. The owner also created the board
+geometry shown in the viewport and authorizes redistribution with this project
+under GPL-3.0-only. File and path labels were obscured before publication; no
+customer drawing or third-party visual asset is distributed with the image.
+
+The PNG is 1,230 by 817 pixels and has SHA-256
+`312E9102D2DCD277FBA733BA8F796B1E4A71F45CE812AA0F587F25646C184641`.
+It was first committed on 2026-07-12 in commit `506c084`. The original DXF is
+not part of the repository and is not required to build or use ExcelsisView.

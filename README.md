@@ -25,8 +25,9 @@ part of the public release. The setup EXE bundles the public SWB macros. Its
 exact corresponding source, pinned dependency lockfile, build scripts, tests,
 provenance, and license notices are published in `helper/` and in the source
 ZIP. The installer is not Authenticode-signed, so Windows may show an
-unknown-publisher warning. The DXF ZIP likewise contains its setup EXE and exact
-corresponding source; that source is also published in `viewer/`.
+unknown-publisher warning. The DXF `0.6.6` ZIP likewise contains its setup EXE
+and exact corresponding `0.6.6` source. The `viewer/` tree now contains the
+newer DXF-only `0.6.7` source candidate; no `0.6.7` binary release is published.
 The Helper page links to immutable tagged GitHub Release assets. The DXF viewer
 continues to use its existing Git LFS download.
 
@@ -47,7 +48,7 @@ continues to use its existing Git LFS download.
 - `downloads/ExcelsisView-0.6.6-dxf-release.zip` - source-complete DXF-only viewer release.
 - `downloads/ExcelsisView-0.6.6-dxf-release.zip.sha256` - public release checksum.
 - `helper/` - exact Excelsis Helper 1.3.9-public.1 source and build documentation.
-- `viewer/` - exact ExcelsisView 0.6.6 source and build documentation.
+- `viewer/` - ExcelsisView 0.6.7 DXF-only source candidate and build documentation; the current public binary remains 0.6.6.
 - `.gitattributes` - tracks release ZIPs and the Helper installer EXE with Git LFS.
 - `.nojekyll` - tells GitHub Pages to publish the static files as-is.
 

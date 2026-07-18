@@ -312,8 +312,10 @@ const expectedNoticeHashes = new Map([
   ["llvm-libunwind.txt", "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d"],
 ]);
 for (const [fileName, expectedHash] of expectedNoticeHashes) {
+  const normalizedNotice = fs.readFileSync(path.join(licenseDirectory, fileName), "utf8")
+    .replace(/\r\n?/g, "\n");
   const actualHash = crypto.createHash("sha256")
-    .update(fs.readFileSync(path.join(licenseDirectory, fileName)))
+    .update(normalizedNotice, "utf8")
     .digest("hex");
   if (actualHash !== expectedHash) fail(`Preserved installer notice changed unexpectedly: ${fileName}`);
 }

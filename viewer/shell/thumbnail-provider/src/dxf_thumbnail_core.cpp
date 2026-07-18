@@ -89,6 +89,7 @@ struct Path {
 struct Scene {
   std::vector<Path> paths;
   std::size_t pointCount = 0;
+  std::size_t flattenWork = 0;
   bool limitExceeded = false;
 };
 
@@ -626,6 +627,27 @@ bool AddPath(Scene* scene, std::vector<Point> points, bool closed) {
   return true;
 }
 
+bool ConsumeFlattenWork(Scene* scene, std::size_t amount = 1u) {
+  if (amount > kMaxFlattenWork - scene->flattenWork) {
+    scene->limitExceeded = true;
+    return false;
+  }
+  scene->flattenWork += amount;
+  return true;
+}
+
+double NormalizeAngle(double angle) {
+  double normalized = std::fmod(angle, 2.0 * kPi);
+  if (normalized < 0.0) normalized += 2.0 * kPi;
+  return normalized;
+}
+
+double PositiveSweep(double start, double end) {
+  double sweep = std::fmod(end - start, 2.0 * kPi);
+  if (sweep <= 0.0) sweep += 2.0 * kPi;
+  return sweep;
+}
+
 void AppendArcPoints(
     std::vector<Point>* points,
     Point center,
@@ -699,6 +721,7 @@ void FlattenEntities(
       scene->limitExceeded = true;
       return;
     }
+    if (!ConsumeFlattenWork(scene)) return;
     std::vector<Point> points;
     bool closed = false;
     switch (entity.kind) {
@@ -718,17 +741,17 @@ void FlattenEntities(
         closed = true;
         break;
       case EntityKind::kArc: {
-        double sweep = entity.end - entity.start;
-        while (sweep <= 0.0) sweep += 2.0 * kPi;
-        AppendArcPoints(&points, entity.center, entity.radius, entity.start, sweep);
+        const double start = NormalizeAngle(entity.start);
+        const double sweep = PositiveSweep(entity.start, entity.end);
+        AppendArcPoints(&points, entity.center, entity.radius, start, sweep);
         break;
       }
       case EntityKind::kEllipse: {
-        double sweep = entity.end - entity.start;
-        while (sweep <= 0.0) sweep += 2.0 * kPi;
+        const double start = NormalizeAngle(entity.start);
+        const double sweep = PositiveSweep(entity.start, entity.end);
         const int segments = std::clamp(static_cast<int>(std::ceil(sweep / (2.0 * kPi) * 96.0)), 12, 128);
         for (int i = 0; i <= segments; ++i) {
-          const double parameter = entity.start + sweep * static_cast<double>(i) / segments;
+          const double parameter = start + sweep * static_cast<double>(i) / segments;
           points.push_back(Point{
               entity.center.x + entity.majorAxis.x * std::cos(parameter) -
                   entity.majorAxis.y * entity.ratio * std::sin(parameter),
@@ -754,6 +777,9 @@ void FlattenEntities(
       case EntityKind::kInsert: {
         const auto found = blocks.find(entity.blockName);
         if (found != blocks.end() && depth < kMaxBlockDepth) {
+          const std::size_t instanceCount =
+              static_cast<std::size_t>(entity.rows) * static_cast<std::size_t>(entity.columns);
+          if (!ConsumeFlattenWork(scene, instanceCount)) return;
           for (int row = 0; row < entity.rows; ++row) {
             for (int column = 0; column < entity.columns; ++column) {
               const Matrix nested = Multiply(transform, InsertMatrix(entity, found->second, column, row));

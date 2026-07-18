@@ -17,6 +17,7 @@ file icon.
 - Input stream: 32 MiB
 - Code/value pairs: 250,000
 - Parsed entities: 30,000
+- Combined flattened entity visits and expanded INSERT instances: 200,000
 - Render paths: 30,000
 - Render points: 200,000
 - Blocks: 5,000

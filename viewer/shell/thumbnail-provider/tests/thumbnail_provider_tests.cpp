@@ -240,6 +240,44 @@ void TestInsertExpansionLimit(DllGetClassObjectFunction getClassObject) {
   Check(FAILED(result) && bitmap == nullptr, "insert render-point limit");
 }
 
+void TestRecursiveInsertWorkLimit(DllGetClassObjectFunction getClassObject) {
+  const auto source = Bytes(
+      "0\nSECTION\n2\nBLOCKS\n"
+      "0\nBLOCK\n2\nEMPTY\n10\n0\n20\n0\n"
+      "0\nENDBLK\n"
+      "0\nBLOCK\n2\nFAN\n10\n0\n20\n0\n"
+      "0\nINSERT\n2\nEMPTY\n10\n0\n20\n0\n70\n64\n71\n64\n"
+      "0\nENDBLK\n0\nENDSEC\n"
+      "0\nSECTION\n2\nENTITIES\n"
+      "0\nINSERT\n2\nFAN\n10\n0\n20\n0\n70\n64\n71\n64\n"
+      "0\nENDSEC\n0\nEOF\n");
+  IThumbnailProvider* provider = CreateProvider(getClassObject, source);
+  HBITMAP bitmap = nullptr;
+  WTS_ALPHATYPE alpha = WTSAT_UNKNOWN;
+  const HRESULT result = provider->GetThumbnail(128, &bitmap, &alpha);
+  provider->Release();
+  Check(result == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE) && bitmap == nullptr,
+      "recursive insert work limit");
+}
+
+void TestExtremeAngleNormalization(DllGetClassObjectFunction getClassObject) {
+  const auto source = Bytes(
+      "0\nSECTION\n2\nENTITIES\n"
+      "0\nARC\n10\n0\n20\n0\n40\n10\n50\n1000000000\n51\n-1000000000\n"
+      "0\nELLIPSE\n10\n25\n20\n0\n11\n10\n21\n0\n40\n0.5\n"
+      "41\n1000000000\n42\n-1000000000\n"
+      "0\nENDSEC\n0\nEOF\n");
+  IThumbnailProvider* provider = CreateProvider(getClassObject, source);
+  HBITMAP bitmap = nullptr;
+  WTS_ALPHATYPE alpha = WTSAT_UNKNOWN;
+  const HRESULT result = provider->GetThumbnail(128, &bitmap, &alpha);
+  provider->Release();
+  Check(SUCCEEDED(result) && bitmap != nullptr, "extreme angle render");
+  const PixelStats stats = InspectBitmap(bitmap, 128);
+  DeleteObject(bitmap);
+  Check(stats.darkPixels > 20, "extreme angle pixel count");
+}
+
 void TestMalformedInput(DllGetClassObjectFunction getClassObject) {
   auto source = Bytes("0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n");
   source[source.size() / 2] = 0;
@@ -347,6 +385,8 @@ int wmain(int argc, wchar_t** argv) {
   TestInputLimit(getClassObject);
   TestEntityLimit(getClassObject);
   TestInsertExpansionLimit(getClassObject);
+  TestRecursiveInsertWorkLimit(getClassObject);
+  TestExtremeAngleNormalization(getClassObject);
   TestMalformedInput(getClassObject);
   TestRegistration(module);
   Check(FreeLibrary(module) != FALSE, "provider DLL unload");

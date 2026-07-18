@@ -73,10 +73,14 @@ const server = http.createServer(async (request, response) => {
     });
     response.end(body);
   } catch (error) {
-    response.writeHead(error?.code === "ENOENT" ? 404 : 500, {
+    const status = error?.code === "ENOENT" ? 404 : 500;
+    const publicMessage = status === 404 ? "Not Found" : "Internal Server Error";
+    console.error(`Renderer harness request failed (${status}).`, error);
+    response.writeHead(status, {
+      "Cache-Control": "no-store",
       "Content-Type": "text/plain; charset=utf-8",
     });
-    response.end(String(error?.message || error));
+    response.end(publicMessage);
   }
 });
 

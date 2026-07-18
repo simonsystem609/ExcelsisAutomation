@@ -297,9 +297,9 @@ function extOf(p) {
 
 function fileTypeForPath(p) {
   const ext = extOf(p);
-  if (ext === ".sldprt") return { key: "part", label: "Part" };
-  if (ext === ".sldasm") return { key: "assembly", label: "Assy" };
-  if (ext === ".slddrw") return { key: "drawing", label: "Drw" };
+  if (ext === ".sldprt") return { key: "part", label: "PRT" };
+  if (ext === ".sldasm") return { key: "assembly", label: "ASS" };
+  if (ext === ".slddrw") return { key: "drawing", label: "DRW" };
   if (ext === ".prz" || ext === ".prt") return { key: "solidcam", label: "CAM" };
   if (ext === ".dxf") return { key: "dxf", label: "DXF" };
   if (ext === ".dwg") return { key: "dwg", label: "DWG" };
@@ -1335,9 +1335,9 @@ function createRecentDocTile(entry) {
   tile.dataset.path = entry.path;
   tile.title = `${entry.path}${entry.missing ? "\n(file missing)" : ""}`;
   const typeKey = String(entry.type || "other");
-  const typeLabel = typeKey === "part" ? "Part"
-    : typeKey === "assembly" ? "Assy"
-    : typeKey === "drawing" ? "Drw"
+  const typeLabel = typeKey === "part" ? "PRT"
+    : typeKey === "assembly" ? "ASS"
+    : typeKey === "drawing" ? "DRW"
     : typeKey === "solidcam" ? "CAM"
     : "?";
   const filename = entry.title || entry.path.split(/[\\/]/).pop();
@@ -1346,7 +1346,10 @@ function createRecentDocTile(entry) {
     ? `<img class="recent-docs-tile-image" src="${escapeAttr(entry.thumbnail)}" alt="" loading="lazy">`
     : `<div class="recent-docs-tile-thumb type-${typeKey}">${escapeHtml(typeLabel)}</div>`;
   tile.innerHTML = `
-    ${thumbHtml}
+    <div class="document-thumb-wrap">
+      ${thumbHtml}
+      <span class="document-type-badge type-${escapeAttr(typeKey)}">${escapeHtml(typeLabel)}</span>
+    </div>
     <div class="recent-docs-tile-name">${escapeHtml(filename)}</div>
     <div class="recent-docs-tile-path" title="${escapeAttr(fullPath)}">${escapeHtml(fullPath)}</div>
   `;
@@ -1822,9 +1825,9 @@ function renderDocSearchResults(result) {
       : `<div class="recent-docs-tile-thumb type-${fileType.key}">${escapeHtml(fileType.label)}</div>`;
     tile.title = fullPath;
     tile.innerHTML = `
-      <div class="doc-search-thumb-wrap">
+      <div class="document-thumb-wrap">
         ${thumbHtml}
-        <span class="doc-search-type-badge type-${escapeAttr(fileType.key)}">${escapeHtml(fileType.label)}</span>
+        <span class="document-type-badge type-${escapeAttr(fileType.key)}">${escapeHtml(fileType.label)}</span>
       </div>
       <div class="recent-docs-tile-name">${escapeHtml(filename)}</div>
       <div class="recent-docs-tile-path" title="${escapeAttr(fullPath)}">${escapeHtml(fullPath)}</div>

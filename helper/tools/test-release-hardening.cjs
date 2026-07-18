@@ -9,6 +9,7 @@ const main = read("main.cjs");
 const preload = read("preload.cjs");
 const html = read("automation.html");
 const renderer = read("automation.js");
+const rendererCss = read("automation.css");
 const mpfWriter = read(path.join("machining-engine", "mpf-writer.cjs"));
 const installer = read("installer.nsh");
 const builder = read("electron-builder.yml");
@@ -20,6 +21,7 @@ const embedded = read(path.join("scripts", "extract-embedded-preview.cjs"));
 const thumbnails = read(path.join("scripts", "extract-sw-thumbnails.ps1"));
 const crawlScrews = read(path.join("macros", "CrawlScrews_v1.swb"));
 const fuseAudit = read(path.join("tools", "audit-packaged-runtime.cjs"));
+const rendererHarnessServer = read(path.join("tools", "renderer-harness", "server.cjs"));
 const pkg = JSON.parse(read("package.json"));
 
 assert.equal((main.match(/ipcMain\.handle\(/g) || []).length, 1, "Only the trusted IPC wrapper may call ipcMain.handle directly.");
@@ -40,6 +42,12 @@ assert.equal(new Set(htmlIds).size, htmlIds.length, "Renderer HTML IDs must be u
 const referencedIds = [...renderer.matchAll(/getElementById\("([^"]+)"\)/g)].map((match) => match[1]);
 for (const id of referencedIds) assert.ok(htmlIds.includes(id), `Renderer references missing HTML ID: ${id}`);
 
+assert.match(renderer, /\.sldprt"\) return \{ key: "part", label: "PRT" \}/);
+assert.match(renderer, /\.sldasm"\) return \{ key: "assembly", label: "ASS" \}/);
+assert.match(renderer, /\.slddrw"\) return \{ key: "drawing", label: "DRW" \}/);
+assert.equal((renderer.match(/class="document-type-badge/g) || []).length, 2);
+assert.match(rendererCss, /\.document-type-badge\s*\{[\s\S]{0,100}top:\s*7px;[\s\S]{0,100}right:\s*7px;/);
+
 assert.match(main, /fs\.realpath\(requestedMacroPath\)/);
 assert.match(main, /isInsideFolderOrEqual\(realMacroPath, realMacroRoot\)/);
 assert.match(main, /const VBA_IDENTIFIER = \/\^\[A-Za-z\]/);
@@ -51,6 +59,10 @@ assert.match(main, /automation:add-recent-doc"[\s\S]{0,300}authorizeDocSearchDoc
 assert.match(main, /automation:open-containing-folder"[\s\S]{0,300}authorizeKnownDocumentPath/);
 assert.match(main, /isWithinApprovedDocSearchRoot/);
 assert.match(main, /automation:gcode-analyze"[\s\S]{0,500}parseAuthorizedMpfInWorker/);
+assert.match(main, /confirmGcodeHeaderCommentInclusion\(settings, analysis\.headerComments\.length\)/);
+assert.match(main, /includeHeaderComments = false/);
+assert.match(main, /escapeGcodePromptMarkdown\(path\.basename\(mpfPath\)/);
+assert.doesNotMatch(main, /Program:\s*\\`\$\{mpfPath\}\\`/);
 assert.match(main, /automation:gcode-local-analyze"[\s\S]{0,500}parseAuthorizedMpfInWorker/);
 assert.match(main, /automation:gcode-local-create-copy/);
 assert.match(main, /source\.sha256 !== sessionRecord\.sourceSha256/);
@@ -113,7 +125,9 @@ assert.match(fuseAudit, /EXPECTED_FUSES = \["0", "0", "0", "0", "1", "1", "0", "
 assert.match(main, /execArgv:\s*\["--max-old-space-size=192"\]/);
 assert.match(main, /JSON\.stringify\(\[\{ path: pair\.path, outPng: pair\.outPng \}\]\)/);
 assert.match(embedded, /MAX_BATCH_ITEMS = 1/);
-assert.match(pkg.version, /^1\.3\.9$/);
+assert.match(rendererHarnessServer, /publicMessage = status === 404 \? "Not Found" : "Internal Server Error"/);
+assert.doesNotMatch(rendererHarnessServer, /response\.end\(String\(error/);
+assert.match(pkg.version, /^1\.4\.1$/);
 assert.equal(pkg.devDependencies.electron, "42.6.1");
 
 assert.match(main, /local CAD diagnostic bundle/);

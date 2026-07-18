@@ -15,6 +15,14 @@ const packageNames = [
   "electron-builder",
   "resedit",
 ];
+const preservedInstallerNotices = ["Elevate-MIT.txt", "NSIS-COPYING.txt"];
+const preservedNativeNotices = [
+  "zig-0.16.0.txt",
+  "mingw-w64-runtime.txt",
+  "llvm-libcxx.txt",
+  "llvm-libcxxabi.txt",
+  "llvm-libunwind.txt",
+];
 
 function findPackageRoot(packageName) {
   let current = path.dirname(require.resolve(packageName, { paths: [projectRoot] }));
@@ -48,8 +56,20 @@ async function collectPackageLicense(packageName) {
 
 async function main() {
   await fs.mkdir(outputDir, { recursive: true });
+  for (const fileName of preservedInstallerNotices) {
+    if (!fsSync.existsSync(path.join(outputDir, fileName))) {
+      throw new Error(`Preserved installer notice is missing: ${fileName}`);
+    }
+  }
+  for (const fileName of preservedNativeNotices) {
+    if (!fsSync.existsSync(path.join(outputDir, fileName))) {
+      throw new Error(`Preserved native-runtime notice is missing: ${fileName}`);
+    }
+  }
   for (const packageName of packageNames) await collectPackageLicense(packageName);
-  console.log(`Collected licenses for ${packageNames.length} packages.`);
+  console.log(
+    `Collected licenses for ${packageNames.length} packages, preserved ${preservedInstallerNotices.length} installer notices, and preserved ${preservedNativeNotices.length} native-runtime notices.`,
+  );
 }
 
 main().catch((error) => {

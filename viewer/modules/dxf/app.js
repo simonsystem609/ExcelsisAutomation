@@ -1,6 +1,8 @@
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const desktopApi = window.dxfApp?.isDesktop ? window.dxfApp : null;
+const resourceLimits = window.DxfResourceLimits;
+if (!resourceLimits) throw new Error("DXF resource guards failed to load.");
 
 const ui = {
   saveBtn: document.getElementById("saveBtn"),
@@ -76,6 +78,7 @@ const state = {
   readOnly: false,
   savedText: "",
   undoStack: [],
+  undoChars: 0,
   measure: [],
   measureDetails: [],
   measureEntityIds: [],
@@ -150,22 +153,28 @@ function screenToWorld(pt) {
 }
 
 function parseDxf(text) {
+  resourceLimits.assertInputText(text);
   const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const rawLines = normalized.split("\n");
   const pairs = [];
 
   for (let i = 0; i < rawLines.length; i += 2) {
+    const rawCode = rawLines[i] ?? "";
+    const rawValue = rawLines[i + 1] ?? "";
+    resourceLimits.assertPairFieldLengths(rawCode.length, rawValue.length);
     pairs.push({
-      code: (rawLines[i] ?? "").trim(),
-      value: rawLines[i + 1] ?? "",
-      rawCode: rawLines[i] ?? "",
-      rawValue: rawLines[i + 1] ?? "",
+      code: rawCode.trim(),
+      value: rawValue,
+      rawCode,
+      rawValue,
     });
   }
+  resourceLimits.assertPairCount(pairs.length);
 
   const entities = [];
   const blocksByName = new Map();
   const idGen = { next: 1 };
+  const budget = resourceLimits.createParseBudget();
 
   let i = 0;
   while (i < pairs.length) {
@@ -190,23 +199,29 @@ function parseDxf(text) {
     }
 
     if (sectionName === "BLOCKS") {
-      parseBlocksSection(pairs, (nameI < pairs.length && pairs[nameI].code === "2") ? nameI + 1 : i + 1, endSec, blocksByName, idGen);
+      parseBlocksSection(pairs, (nameI < pairs.length && pairs[nameI].code === "2") ? nameI + 1 : i + 1, endSec, blocksByName, idGen, budget);
     } else if (sectionName === "ENTITIES") {
-      parseEntitiesSection(pairs, (nameI < pairs.length && pairs[nameI].code === "2") ? nameI + 1 : i + 1, endSec, entities, blocksByName, idGen);
+      parseEntitiesSection(pairs, (nameI < pairs.length && pairs[nameI].code === "2") ? nameI + 1 : i + 1, endSec, entities, blocksByName, idGen, budget);
     }
 
     i = endSec + 1;
   }
 
-  return { pairs, entities, text };
+  return { pairs, entities, text, resourceUsage: { ...budget } };
 }
 
-function parseBlocksSection(pairs, startI, endI, blocksByName, idGen) {
+function nextEntityId(idGen, budget) {
+  resourceLimits.claimEntity(budget);
+  return idGen.next++;
+}
+
+function parseBlocksSection(pairs, startI, endI, blocksByName, idGen, budget) {
   let i = startI;
   while (i < endI) {
     if (pairs[i].code !== "0") { i++; continue; }
     const type = pairs[i].value.trim().toUpperCase();
     if (type !== "BLOCK") { i++; continue; }
+    resourceLimits.claimBlock(budget);
 
     // BLOCK header — read until next code-0
     let h = i + 1;
@@ -228,14 +243,14 @@ function parseBlocksSection(pairs, startI, endI, blocksByName, idGen) {
       }
       if (entType === "INSERT") {
         // Nested INSERTs inside blocks: parse as opaque, do not recursively expand.
-        const result = parseInsertEntity(pairs, entI, idGen, blocksByName);
+        const result = parseInsertEntity(pairs, entI, idGen, blocksByName, budget);
         // Only keep the children (expanded), drop the placeholder since this is
         // inside a block definition (no in-place serialize needed for nested).
         for (const child of result.children) blockEntities.push(child);
         entI = result.nextIndex;
         continue;
       }
-      const result = parseSingleEntity(pairs, entI, entType, idGen);
+      const result = parseSingleEntity(pairs, entI, entType, idGen, budget);
       if (result.entity && result.entity.supported) blockEntities.push(result.entity);
       entI = result.nextIndex;
     }
@@ -245,7 +260,7 @@ function parseBlocksSection(pairs, startI, endI, blocksByName, idGen) {
   }
 }
 
-function parseEntitiesSection(pairs, startI, endI, entities, blocksByName, idGen) {
+function parseEntitiesSection(pairs, startI, endI, entities, blocksByName, idGen, budget) {
   let i = startI;
   while (i < endI) {
     if (pairs[i].code !== "0") { i++; continue; }
@@ -253,29 +268,29 @@ function parseEntitiesSection(pairs, startI, endI, entities, blocksByName, idGen
     if (type === "ENDSEC") break;
 
     if (type === "INSERT") {
-      const result = parseInsertEntity(pairs, i, idGen, blocksByName);
+      const result = parseInsertEntity(pairs, i, idGen, blocksByName, budget);
       if (result.placeholder) entities.push(result.placeholder);
       for (const child of result.children) entities.push(child);
       i = result.nextIndex;
       continue;
     }
 
-    const result = parseSingleEntity(pairs, i, type, idGen);
+    const result = parseSingleEntity(pairs, i, type, idGen, budget);
     if (result.entity) entities.push(result.entity);
     i = result.nextIndex;
   }
 }
 
-function parseSingleEntity(pairs, startI, type, idGen) {
-  if (type === "POLYLINE") return parsePolylineGroup(pairs, startI, idGen);
+function parseSingleEntity(pairs, startI, type, idGen, budget) {
+  if (type === "POLYLINE") return parsePolylineGroup(pairs, startI, idGen, budget);
   let j = startI + 1;
   while (j < pairs.length && pairs[j].code !== "0") j++;
   const entityPairs = pairs.slice(startI, j);
-  const entity = parseEntity(type, entityPairs, startI, j - 1, idGen.next++);
+  const entity = parseEntity(type, entityPairs, startI, j - 1, nextEntityId(idGen, budget), budget);
   return { entity, nextIndex: j };
 }
 
-function parsePolylineGroup(pairs, startI, idGen) {
+function parsePolylineGroup(pairs, startI, idGen, budget) {
   // POLYLINE header until next code-0
   let j = startI + 1;
   while (j < pairs.length && pairs[j].code !== "0") j++;
@@ -305,6 +320,7 @@ function parsePolylineGroup(pairs, startI, idGen) {
     const y = readNumber(vertexPairs, "20");
     const bulge = readNumber(vertexPairs, "42") || 0;
     if (Number.isFinite(x) && Number.isFinite(y)) {
+      resourceLimits.claimPoints(budget);
       polyPoints.push({ x, y, bulge });
     }
     endIndex = k - 1;
@@ -312,7 +328,7 @@ function parsePolylineGroup(pairs, startI, idGen) {
   }
 
   const baseEntity = {
-    id: idGen.next++,
+    id: nextEntityId(idGen, budget),
     start: startI,
     end: endIndex,
     pairs: pairs.slice(startI, endIndex + 1),
@@ -337,7 +353,7 @@ function parsePolylineGroup(pairs, startI, idGen) {
   };
 }
 
-function parseInsertEntity(pairs, startI, idGen, blocksByName) {
+function parseInsertEntity(pairs, startI, idGen, blocksByName, budget) {
   let j = startI + 1;
   while (j < pairs.length && pairs[j].code !== "0") j++;
   const insertPairs = pairs.slice(startI, j);
@@ -356,7 +372,7 @@ function parseInsertEntity(pairs, startI, idGen, blocksByName) {
   };
 
   const placeholder = {
-    id: idGen.next++,
+    id: nextEntityId(idGen, budget),
     type: "INSERT",
     originalType: "INSERT",
     start: startI,
@@ -374,7 +390,7 @@ function parseInsertEntity(pairs, startI, idGen, blocksByName) {
   const blockEntities = blocksByName.get(blockName) || [];
   const children = [];
   for (const src of blockEntities) {
-    const transformed = transformEntityForInsert(src, placeholder, transform, idGen);
+    const transformed = transformEntityForInsert(src, placeholder, transform, idGen, budget);
     if (transformed) children.push(transformed);
   }
   return { placeholder, children, nextIndex: j };
@@ -391,10 +407,10 @@ function transformPointForInsert(p, t) {
   };
 }
 
-function transformEntityForInsert(src, placeholder, t, idGen) {
+function transformEntityForInsert(src, placeholder, t, idGen, budget) {
   const uniformScale = (Math.abs(t.sx || 1) + Math.abs(t.sy || 1)) / 2;
   const base = {
-    id: idGen.next++,
+    id: nextEntityId(idGen, budget),
     start: placeholder.start,
     end: placeholder.end,
     pairs: placeholder.pairs,
@@ -410,28 +426,36 @@ function transformEntityForInsert(src, placeholder, t, idGen) {
   if (src.type === "LINE") {
     const a = transformPointForInsert({ x: src.x1, y: src.y1 }, t);
     const b = transformPointForInsert({ x: src.x2, y: src.y2 }, t);
+    if (![a.x, a.y, b.x, b.y].every(Number.isFinite)) return null;
     return { ...base, type: "LINE", x1: a.x, y1: a.y, x2: b.x, y2: b.y };
   }
   if (src.type === "CIRCLE") {
     const c = transformPointForInsert({ x: src.cx, y: src.cy }, t);
-    return { ...base, type: "CIRCLE", cx: c.x, cy: c.y, r: src.r * uniformScale };
+    const radius = src.r * uniformScale;
+    if (![c.x, c.y, radius].every(Number.isFinite)) return null;
+    return { ...base, type: "CIRCLE", cx: c.x, cy: c.y, r: radius };
   }
   if (src.type === "ARC") {
     const c = transformPointForInsert({ x: src.cx, y: src.cy }, t);
     const rotDeg = (t.rotRad || 0) * 180 / Math.PI;
+    const radius = src.r * uniformScale;
+    if (![c.x, c.y, radius, rotDeg].every(Number.isFinite)) return null;
     return {
       ...base,
       type: "ARC",
-      cx: c.x, cy: c.y, r: src.r * uniformScale,
+      cx: c.x, cy: c.y, r: radius,
       a1: src.a1 + rotDeg,
       a2: src.a2 + rotDeg,
     };
   }
   if (src.type === "LWPOLYLINE") {
+    resourceLimits.claimPoints(budget, src.points.length);
+    const points = src.points.map((p) => ({ ...transformPointForInsert(p, t), bulge: p.bulge || 0 }));
+    if (points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return null;
     return {
       ...base,
       type: "LWPOLYLINE",
-      points: src.points.map((p) => ({ ...transformPointForInsert(p, t), bulge: p.bulge || 0 })),
+      points,
       closed: !!src.closed,
     };
   }
@@ -476,6 +500,7 @@ function sampleBSpline(degree, controlPoints, knots, sampleCount) {
   const tMax = knots[controlPoints.length];
   if (!(tMax > tMin)) return [];
   const samples = Math.max(2, sampleCount | 0);
+  resourceLimits.assertCurveSamples(samples);
   const points = [];
   for (let i = 0; i <= samples; i++) {
     const t = tMin + (tMax - tMin) * (i / samples);
@@ -500,6 +525,7 @@ function sampleEllipsePoints(center, majorAxis, ratio, startParam, endParam, sam
   const majorLen = Math.hypot(majorAxis.x, majorAxis.y);
   if (!(majorLen > 0)) return [];
   const samples = Math.max(2, sampleCount | 0);
+  resourceLimits.assertCurveSamples(samples);
   const cosA = majorAxis.x / majorLen;
   const sinA = majorAxis.y / majorLen;
   const minorLen = majorLen * Math.abs(ratio || 1);
@@ -528,18 +554,24 @@ function sampleEllipsePoints(center, majorAxis, ratio, startParam, endParam, sam
   return out;
 }
 
-function parseSplinePoints(pairs) {
+function parseSplinePoints(pairs, budget) {
   const fitPoints = [];
   const controlPoints = [];
   const knots = [];
   let curCtl = null;
   let curFit = null;
   const flushCtl = () => {
-    if (curCtl && Number.isFinite(curCtl.x) && Number.isFinite(curCtl.y)) controlPoints.push(curCtl);
+    if (curCtl && Number.isFinite(curCtl.x) && Number.isFinite(curCtl.y)) {
+      resourceLimits.claimPoints(budget);
+      controlPoints.push(curCtl);
+    }
     curCtl = null;
   };
   const flushFit = () => {
-    if (curFit && Number.isFinite(curFit.x) && Number.isFinite(curFit.y)) fitPoints.push(curFit);
+    if (curFit && Number.isFinite(curFit.x) && Number.isFinite(curFit.y)) {
+      resourceLimits.claimPoints(budget);
+      fitPoints.push(curFit);
+    }
     curFit = null;
   };
   for (const p of pairs) {
@@ -563,7 +595,7 @@ function parseSplinePoints(pairs) {
   return { fitPoints, controlPoints, knots };
 }
 
-function parseEntity(type, pairs, start, end, id) {
+function parseEntity(type, pairs, start, end, id, budget) {
   const entity = {
     id,
     type,
@@ -581,13 +613,13 @@ function parseEntity(type, pairs, start, end, id) {
     entity.y1 = readNumber(pairs, "20");
     entity.x2 = readNumber(pairs, "11");
     entity.y2 = readNumber(pairs, "21");
-    if ([entity.x1, entity.y1, entity.x2, entity.y2].some(Number.isNaN)) return entity;
+    if ([entity.x1, entity.y1, entity.x2, entity.y2].some((value) => !Number.isFinite(value))) return entity;
     entity.supported = true;
   } else if (type === "CIRCLE") {
     entity.cx = readNumber(pairs, "10");
     entity.cy = readNumber(pairs, "20");
     entity.r = readNumber(pairs, "40");
-    if ([entity.cx, entity.cy, entity.r].some(Number.isNaN)) return entity;
+    if ([entity.cx, entity.cy, entity.r].some((value) => !Number.isFinite(value))) return entity;
     entity.supported = true;
   } else if (type === "ARC") {
     entity.cx = readNumber(pairs, "10");
@@ -595,7 +627,7 @@ function parseEntity(type, pairs, start, end, id) {
     entity.r = readNumber(pairs, "40");
     entity.a1 = readNumber(pairs, "50");
     entity.a2 = readNumber(pairs, "51");
-    if ([entity.cx, entity.cy, entity.r, entity.a1, entity.a2].some(Number.isNaN)) return entity;
+    if ([entity.cx, entity.cy, entity.r, entity.a1, entity.a2].some((value) => !Number.isFinite(value))) return entity;
     entity.supported = true;
   } else if (type === "LWPOLYLINE") {
     entity.points = [];
@@ -603,6 +635,7 @@ function parseEntity(type, pairs, start, end, id) {
     let point = null;
     const flushPoint = () => {
       if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+        resourceLimits.claimPoints(budget);
         entity.points.push(point);
       }
     };
@@ -633,7 +666,7 @@ function parseEntity(type, pairs, start, end, id) {
     const ratio = readNumber(pairs, "40");
     const startParam = readNumber(pairs, "41");
     const endParam = readNumber(pairs, "42");
-    if ([cx, cy, mx, my, ratio].some(Number.isNaN)) {
+    if ([cx, cy, mx, my, ratio].some((value) => !Number.isFinite(value))) {
       entity.supported = false;
       return entity;
     }
@@ -649,6 +682,7 @@ function parseEntity(type, pairs, start, end, id) {
       entity.supported = false;
       return entity;
     }
+    resourceLimits.claimPoints(budget, polyPoints.length);
     entity.originalType = "ELLIPSE";
     entity.type = "LWPOLYLINE";
     entity.points = polyPoints.map((p) => ({ x: p.x, y: p.y, bulge: 0 }));
@@ -663,12 +697,14 @@ function parseEntity(type, pairs, start, end, id) {
     // back to fit points.
     const flag = readNumber(pairs, "70") || 0;
     const degree = Math.max(1, readNumber(pairs, "71") || 3);
+    resourceLimits.assertSplineDegree(degree);
     const closed = (flag & 1) !== 0;
-    const { fitPoints, controlPoints, knots } = parseSplinePoints(pairs);
+    const { fitPoints, controlPoints, knots } = parseSplinePoints(pairs, budget);
     let polyPoints = [];
     if (controlPoints.length > degree && knots.length === controlPoints.length + degree + 1) {
       const sampleCount = Math.max(32, controlPoints.length * 2);
       polyPoints = sampleBSpline(degree, controlPoints, knots, sampleCount);
+      resourceLimits.claimPoints(budget, polyPoints.length);
     }
     if (polyPoints.length < 2 && fitPoints.length >= 2) {
       polyPoints = fitPoints;
@@ -695,10 +731,11 @@ function parseEntity(type, pairs, start, end, id) {
     const height = readNumber(pairs, "40");
     const rotation = readNumber(pairs, "50");
     const text = readFirst(pairs, "1");
-    if ([x, y].some(Number.isNaN) || !text) {
+    if ([x, y].some((value) => !Number.isFinite(value)) || !text) {
       entity.supported = false;
       return entity;
     }
+    resourceLimits.claimAnnotationChars(budget, text.length);
     entity.originalType = "TEXT";
     entity.text = text;
     entity.x = x;
@@ -716,12 +753,15 @@ function parseEntity(type, pairs, start, end, id) {
     const y = readNumber(pairs, "20");
     const height = readNumber(pairs, "40");
     const rotation = readNumber(pairs, "50");
-    let raw = "";
+    const chunks = [];
     for (const p of pairs) {
-      if (p.code === "3") raw += p.value;
-      else if (p.code === "1") raw += p.value;
+      if (p.code === "3" || p.code === "1") {
+        resourceLimits.claimAnnotationChars(budget, p.value.length);
+        chunks.push(p.value);
+      }
     }
-    if ([x, y].some(Number.isNaN) || !raw) {
+    const raw = chunks.join("");
+    if ([x, y].some((value) => !Number.isFinite(value)) || !raw) {
       entity.supported = false;
       return entity;
     }
@@ -792,6 +832,73 @@ function formatNumber(value) {
   return s === "-0" ? "0" : s;
 }
 
+function endpointCellKey(x, y) {
+  return `${x}:${y}`;
+}
+
+function visitNearbyEndpointBuckets(grid, point, callback) {
+  if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return;
+  const cellX = Math.floor(point.x / CONNECT_TOL);
+  const cellY = Math.floor(point.y / CONNECT_TOL);
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const bucket = grid.get(endpointCellKey(cellX + dx, cellY + dy));
+      if (bucket) callback(bucket);
+    }
+  }
+}
+
+function addEndpointToGrid(grid, point, value) {
+  if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return;
+  const key = endpointCellKey(
+    Math.floor(point.x / CONNECT_TOL),
+    Math.floor(point.y / CONNECT_TOL),
+  );
+  if (!grid.has(key)) grid.set(key, []);
+  grid.get(key).push(value);
+}
+
+function connectNearbyEndpoints(parent, endpoints, comparisonBudget) {
+  const grid = new Map();
+  for (const endpoint of endpoints) {
+    visitNearbyEndpointBuckets(grid, endpoint.pt, (bucket) => {
+      for (const candidate of bucket) {
+        resourceLimits.claimEndpointComparisons(comparisonBudget);
+        if (pointsNear(endpoint.pt, candidate.pt, CONNECT_TOL)) {
+          union(parent, endpoint.entity.id, candidate.entity.id);
+        }
+      }
+    });
+    addEndpointToGrid(grid, endpoint.pt, endpoint);
+  }
+}
+
+function createEndpointNodeIndex(comparisonBudget) {
+  const points = [];
+  const grid = new Map();
+  return {
+    points,
+    nodeForPoint(point) {
+      let match = -1;
+      visitNearbyEndpointBuckets(grid, point, (bucket) => {
+        if (match >= 0) return;
+        for (const nodeIndex of bucket) {
+          resourceLimits.claimEndpointComparisons(comparisonBudget);
+          if (pointsNear(points[nodeIndex], point, CONNECT_TOL)) {
+            match = nodeIndex;
+            break;
+          }
+        }
+      });
+      if (match >= 0) return match;
+      const nodeIndex = points.length;
+      points.push(point);
+      addEndpointToGrid(grid, point, nodeIndex);
+      return nodeIndex;
+    },
+  };
+}
+
 function buildFeatures() {
   if (!state.doc) {
     state.features = [];
@@ -803,6 +910,7 @@ function buildFeatures() {
 
   const parent = new Map();
   for (const e of entities) parent.set(e.id, e.id);
+  const comparisonBudget = resourceLimits.createComparisonBudget();
 
   const endpoints = [];
   for (const e of entities) {
@@ -810,13 +918,7 @@ function buildFeatures() {
     for (const pt of pts) endpoints.push({ entity: e, pt });
   }
 
-  for (let i = 0; i < endpoints.length; i++) {
-    for (let j = i + 1; j < endpoints.length; j++) {
-      if (pointsNear(endpoints[i].pt, endpoints[j].pt, CONNECT_TOL)) {
-        union(parent, endpoints[i].entity.id, endpoints[j].entity.id);
-      }
-    }
-  }
+  connectNearbyEndpoints(parent, endpoints, comparisonBudget);
 
   const buckets = new Map();
   for (const e of entities) {
@@ -827,14 +929,15 @@ function buildFeatures() {
 
   const featureBuckets = [];
   for (const bucket of buckets.values()) {
-    featureBuckets.push(...splitFeatureBucket(bucket));
+    featureBuckets.push(...splitFeatureBucket(bucket, comparisonBudget));
   }
+  resourceLimits.assertFeatureCount(featureBuckets.length);
 
   const features = [];
   let featureId = 1;
   for (const bucket of featureBuckets) {
     if (!bucket.length) continue;
-    features.push(createFeature(featureId++, bucket));
+    features.push(createFeature(featureId++, bucket, comparisonBudget));
   }
 
   let outer = null;
@@ -867,9 +970,9 @@ function buildFeatures() {
   });
 }
 
-function createFeature(id, bucket) {
+function createFeature(id, bucket, comparisonBudget) {
   const bbox = bboxForEntities(bucket);
-  const closed = isClosedFeature(bucket);
+  const closed = isClosedFeature(bucket, comparisonBudget);
   const center = bboxCenter(bbox);
   const feature = {
     id,
@@ -884,21 +987,14 @@ function createFeature(id, bucket) {
   return feature;
 }
 
-function splitFeatureBucket(bucket) {
-  if (bucket.length <= 1 || isClosedFeature(bucket)) return [bucket];
+function splitFeatureBucket(bucket, comparisonBudget) {
+  if (bucket.length <= 1 || isClosedFeature(bucket, comparisonBudget)) return [bucket];
 
   const endpointByEntity = new Map();
-  const nodePoints = [];
-  const nodeForPoint = (pt) => {
-    for (let i = 0; i < nodePoints.length; i++) {
-      if (pointsNear(nodePoints[i], pt, CONNECT_TOL)) return i;
-    }
-    nodePoints.push(pt);
-    return nodePoints.length - 1;
-  };
+  const nodeIndex = createEndpointNodeIndex(comparisonBudget);
 
   for (const e of bucket) {
-    const endpoints = entityEndpoints(e).map(nodeForPoint);
+    const endpoints = entityEndpoints(e).map((point) => nodeIndex.nodeForPoint(point));
     if (endpoints.length) endpointByEntity.set(e.id, endpoints);
   }
 
@@ -924,16 +1020,19 @@ function splitFeatureBucket(bucket) {
 
   const byId = new Map(bucket.map((e) => [e.id, e]));
   const core = [...coreIds].map((id) => byId.get(id)).filter(Boolean);
-  if (!openIds.size || !core.length || !isClosedFeature(core)) return [bucket];
+  if (!openIds.size || !core.length || !isClosedFeature(core, comparisonBudget)) return [bucket];
 
   const result = [core];
-  for (const openBucket of connectedBuckets([...openIds].map((id) => byId.get(id)).filter(Boolean))) {
+  for (const openBucket of connectedBuckets(
+    [...openIds].map((id) => byId.get(id)).filter(Boolean),
+    comparisonBudget,
+  )) {
     if (openBucket.length) result.push(openBucket);
   }
   return result;
 }
 
-function connectedBuckets(entities) {
+function connectedBuckets(entities, comparisonBudget = resourceLimits.createComparisonBudget()) {
   if (entities.length <= 1) return entities.length ? [entities] : [];
   const parent = new Map();
   for (const e of entities) parent.set(e.id, e.id);
@@ -941,13 +1040,7 @@ function connectedBuckets(entities) {
   for (const e of entities) {
     for (const pt of entityEndpoints(e)) endpoints.push({ entity: e, pt });
   }
-  for (let i = 0; i < endpoints.length; i++) {
-    for (let j = i + 1; j < endpoints.length; j++) {
-      if (pointsNear(endpoints[i].pt, endpoints[j].pt, CONNECT_TOL)) {
-        union(parent, endpoints[i].entity.id, endpoints[j].entity.id);
-      }
-    }
-  }
+  connectNearbyEndpoints(parent, endpoints, comparisonBudget);
   const buckets = new Map();
   for (const e of entities) {
     const root = find(parent, e.id);
@@ -1101,7 +1194,7 @@ function entityEndpoints(e) {
   return [];
 }
 
-function isClosedFeature(entities) {
+function isClosedFeature(entities, comparisonBudget = resourceLimits.createComparisonBudget()) {
   if (entities.length === 1 && entities[0].type === "CIRCLE") return true;
   if (entities.length === 1 && entities[0].type === "LWPOLYLINE" && entities[0].closed) return true;
 
@@ -1111,20 +1204,13 @@ function isClosedFeature(entities) {
   }
   if (pts.length < 2) return false;
 
-  const used = new Array(pts.length).fill(false);
-  for (let i = 0; i < pts.length; i++) {
-    if (used[i]) continue;
-    let count = 1;
-    used[i] = true;
-    for (let j = i + 1; j < pts.length; j++) {
-      if (pointsNear(pts[i], pts[j], CONNECT_TOL)) {
-        used[j] = true;
-        count++;
-      }
-    }
-    if (count < 2 || count % 2 !== 0) return false;
+  const nodeIndex = createEndpointNodeIndex(comparisonBudget);
+  const counts = new Map();
+  for (const point of pts) {
+    const node = nodeIndex.nodeForPoint(point);
+    counts.set(node, (counts.get(node) || 0) + 1);
   }
-  return true;
+  return [...counts.values()].every((count) => count >= 2 && count % 2 === 0);
 }
 
 function bboxForEntities(entities) {
@@ -1790,7 +1876,7 @@ async function mirrorCurrentDxf() {
     loadDxfText(originalText, { preserveView: true });
     state.dirty = originalDirty;
     state.savedText = originalSavedText;
-    state.undoStack = originalUndo;
+    setUndoStack(originalUndo);
     syncUi();
   };
 
@@ -1823,7 +1909,7 @@ async function mirrorCurrentDxf() {
       loadDxfText(mirrorText);
       state.savedText = serializeDxf();
       state.dirty = false;
-      state.undoStack = [];
+      clearUndoHistory();
       state.selectedEntityIds.clear();
       state.selectedFeatureIds.clear();
       state.dissolvedEntityIds.clear();
@@ -2080,7 +2166,7 @@ async function scaleCurrentDxf() {
     loadDxfText(originalText, { preserveView: true });
     state.dirty = originalDirty;
     state.savedText = originalSavedText;
-    state.undoStack = originalUndo;
+    setUndoStack(originalUndo);
     syncUi();
   };
 
@@ -2113,7 +2199,7 @@ async function scaleCurrentDxf() {
       loadDxfText(scaleText);
       state.savedText = serializeDxf();
       state.dirty = false;
-      state.undoStack = [];
+      clearUndoHistory();
       state.selectedEntityIds.clear();
       state.selectedFeatureIds.clear();
       state.dissolvedEntityIds.clear();
@@ -6456,7 +6542,7 @@ async function applyOuterContourRepair(options) {
     loadDxfText(originalText, { preserveView: true });
     state.dirty = originalDirty;
     state.savedText = originalSavedText;
-    state.undoStack = originalUndo;
+    setUndoStack(originalUndo);
     state.selectedEntityIds.clear();
     state.selectedFeatureIds.clear();
     state.dissolvedEntityIds.clear();
@@ -6496,7 +6582,7 @@ async function applyOuterContourRepair(options) {
     loadDxfText(fixedText);
     state.savedText = serializeDxf();
     state.dirty = false;
-    state.undoStack = [];
+    clearUndoHistory();
     state.selectedEntityIds.clear();
     state.selectedFeatureIds.clear();
     state.dissolvedEntityIds.clear();
@@ -6864,18 +6950,36 @@ function updateDirty() {
   syncUi();
 }
 
+function setUndoStack(snapshots) {
+  state.undoStack = [...snapshots];
+  state.undoChars = state.undoStack.reduce((total, snapshot) => total + snapshot.length, 0);
+}
+
+function clearUndoHistory() {
+  state.undoStack = [];
+  state.undoChars = 0;
+}
+
 function pushUndoSnapshot() {
   if (!state.doc) return;
   const snapshot = serializeDxf();
   if (state.undoStack[state.undoStack.length - 1] !== snapshot) {
+    if (snapshot.length > resourceLimits.LIMITS.MAX_UNDO_CHARS) return;
     state.undoStack.push(snapshot);
-    if (state.undoStack.length > 100) state.undoStack.shift();
+    state.undoChars += snapshot.length;
+    while (
+      state.undoStack.length > resourceLimits.LIMITS.MAX_UNDO_SNAPSHOTS
+      || state.undoChars > resourceLimits.LIMITS.MAX_UNDO_CHARS
+    ) {
+      state.undoChars -= state.undoStack.shift().length;
+    }
   }
 }
 
 function undoLastChange() {
   if (!state.undoStack.length || state.readOnly) return;
   const snapshot = state.undoStack.pop();
+  state.undoChars -= snapshot.length;
   loadDxfText(snapshot, { preserveView: true });
   updateDirty();
 }
@@ -6896,6 +7000,7 @@ function loadDxfText(text, { preserveView = false } = {}) {
 function serializeDxf() {
   if (!state.doc) return "";
   const out = [];
+  const outputBudget = resourceLimits.createOutputBudget();
   // Virtual entities (INSERT-expanded children) don't have their own pair
   // span in the source file — they're synthesized for display/selection.
   // The parent INSERT entity already owns the original pair block, so its
@@ -6906,20 +7011,25 @@ function serializeDxf() {
     .sort((a, b) => a.start - b.start);
   let cursor = 0;
   for (const e of sorted) {
-    for (let i = cursor; i < e.start; i++) pushPair(out, state.doc.pairs[i]);
+    for (let i = cursor; i < e.start; i++) pushPair(out, state.doc.pairs[i], outputBudget);
     if (!e.deleted) {
       const pairs = (e.modified || e.start > e.end) ? updatedPairsForEntity(e) : state.doc.pairs.slice(e.start, e.end + 1);
-      for (const p of pairs) pushPair(out, p);
+      for (const p of pairs) pushPair(out, p, outputBudget);
     }
     cursor = e.end + 1;
   }
-  for (let i = cursor; i < state.doc.pairs.length; i++) pushPair(out, state.doc.pairs[i]);
-  return out.join("\r\n");
+  for (let i = cursor; i < state.doc.pairs.length; i++) pushPair(out, state.doc.pairs[i], outputBudget);
+  const text = out.join("\r\n");
+  resourceLimits.assertOutputText(text);
+  return text;
 }
 
-function pushPair(out, pair) {
-  out.push(pair.rawCode ?? pair.code);
-  out.push(pair.rawValue ?? pair.value);
+function pushPair(out, pair, outputBudget) {
+  const code = pair.rawCode ?? pair.code;
+  const value = pair.rawValue ?? pair.value;
+  resourceLimits.claimOutputPair(outputBudget, code, value);
+  out.push(code);
+  out.push(value);
 }
 
 function buildLwPolylinePairs(e) {
@@ -7100,15 +7210,30 @@ async function refreshDxfFolderFiles() {
   syncUi();
 }
 
+function describeDxfError(error) {
+  const message = String(error?.message || error || "Unknown error");
+  return message.replace(/^Error invoking remote method '[^']+':\s*/i, "");
+}
+
+function reportDxfError(action, error) {
+  const message = `${action}: ${describeDxfError(error)}`;
+  ui.hud.textContent = message;
+  alert(message);
+}
+
 async function updateReadOnly(lockState) {
   const current = currentFile();
   if (!lockState || !current?.path || lockState.path !== current.path) return;
   const wasReadOnly = state.readOnly;
   state.readOnly = !!lockState.readOnly;
   if (wasReadOnly && !state.readOnly && !state.dirty && desktopApi) {
-    const text = await desktopApi.readFile(current.path);
-    loadDxfText(text, { preserveView: true });
-    state.savedText = serializeDxf();
+    try {
+      const text = await desktopApi.readFile(current.path);
+      loadDxfText(text, { preserveView: true });
+      state.savedText = serializeDxf();
+    } catch (error) {
+      reportDxfError(`Could not reload ${current.name}`, error);
+    }
   }
   if (state.readOnly && state.dirty) {
     ui.hud.textContent = `${current.name} - read-only; discard unsaved changes before navigating`;
@@ -7119,11 +7244,15 @@ async function updateReadOnly(lockState) {
 async function refreshReadOnlyFile(savedState) {
   const current = currentFile();
   if (!state.readOnly || state.dirty || !current?.path || savedState?.path !== current.path || !desktopApi) return;
-  const text = await desktopApi.readFile(current.path);
-  loadDxfText(text, { preserveView: true });
-  state.savedText = serializeDxf();
-  state.dirty = false;
-  syncUi();
+  try {
+    const text = await desktopApi.readFile(current.path);
+    loadDxfText(text, { preserveView: true });
+    state.savedText = serializeDxf();
+    state.dirty = false;
+    syncUi();
+  } catch (error) {
+    reportDxfError(`Could not reload ${current.name}`, error);
+  }
 }
 
 async function loadCurrentFile() {
@@ -7136,7 +7265,7 @@ async function loadCurrentFile() {
   state.dirty = false;
   state.readOnly = false;
   state.savedText = "";
-  state.undoStack = [];
+  clearUndoHistory();
   state.repairCompareVisible = false;
   state.repairCompareOriginal = null;
   state.repairCompareFixed = null;
@@ -7148,15 +7277,32 @@ async function loadCurrentFile() {
     rebuild();
     return;
   }
-  if (current.path && desktopApi?.claimFile) {
-    const lockState = await desktopApi.claimFile(current.path);
-    await updateReadOnly(lockState);
+  try {
+    if (current.path && desktopApi?.claimFile) {
+      const lockState = await desktopApi.claimFile(current.path);
+      await updateReadOnly(lockState);
+    }
+    const text = current.path && desktopApi ? await desktopApi.readFile(current.path) : await current.file.text();
+    loadDxfText(text);
+    state.savedText = serializeDxf();
+    state.dirty = false;
+    syncUi();
+    return true;
+  } catch (error) {
+    state.doc = null;
+    state.savedText = "";
+    state.dirty = false;
+    state.readOnly = false;
+    clearUndoHistory();
+    if (desktopApi?.releaseFile) {
+      try { await desktopApi.releaseFile(); } catch {}
+    }
+    rebuild();
+    syncUi();
+    render();
+    reportDxfError(`Could not open ${current.name || "DXF"}`, error);
+    return false;
   }
-  const text = current.path && desktopApi ? await desktopApi.readFile(current.path) : await current.file.text();
-  loadDxfText(text);
-  state.savedText = serializeDxf();
-  state.dirty = false;
-  syncUi();
 }
 
 async function saveFile() {
@@ -7180,7 +7326,7 @@ async function saveFile() {
   }
   state.dirty = false;
   state.savedText = text;
-  state.undoStack = [];
+  clearUndoHistory();
   for (const e of state.doc.entities) e.modified = false;
   syncUi();
   return true;
@@ -7189,12 +7335,16 @@ async function saveFile() {
 async function discardChanges() {
   if (!state.doc || !state.dirty) return;
   const current = currentFile();
-  const text = current?.path && desktopApi ? await desktopApi.readFile(current.path) : state.savedText;
-  loadDxfText(text, { preserveView: true });
-  state.savedText = serializeDxf();
-  state.dirty = false;
-  state.undoStack = [];
-  syncUi();
+  try {
+    const text = current?.path && desktopApi ? await desktopApi.readFile(current.path) : state.savedText;
+    loadDxfText(text, { preserveView: true });
+    state.savedText = serializeDxf();
+    state.dirty = false;
+    clearUndoHistory();
+    syncUi();
+  } catch (error) {
+    reportDxfError("Could not discard changes", error);
+  }
 }
 
 function downloadText(text, filename) {
@@ -7466,29 +7616,33 @@ document.addEventListener("dragover", (event) => {
 document.addEventListener("drop", async (event) => {
   event.preventDefault();
   if (!desktopApi?.getPathForFile) return;
-  const droppedPaths = [...(event.dataTransfer?.files || [])]
-    .map((file) => { try { return desktopApi.getPathForFile(file); } catch { return null; } })
-    .filter((p) => p && /\.dxf$/i.test(p));
-  if (!droppedPaths.length) return;
-  const target = droppedPaths[0];
-  const currentPath = currentFile()?.path;
-  const sameFolder = currentPath && dirnameOf(target).toLowerCase() === dirnameOf(currentPath).toLowerCase();
-  if (sameFolder) {
-    if (!(await maybeSaveBeforeNavigate())) return;
-    const fileSet = await desktopApi.listDxfFolder(target);
-    if (fileSet?.files?.length) {
-      state.files = fileSet.files;
-      state.fileIndex = Math.max(0, fileSet.index ?? 0);
-      await loadCurrentFile();
+  try {
+    const droppedPaths = [...(event.dataTransfer?.files || [])]
+      .map((file) => { try { return desktopApi.getPathForFile(file); } catch { return null; } })
+      .filter((p) => p && /\.dxf$/i.test(p));
+    if (!droppedPaths.length) return;
+    const target = droppedPaths[0];
+    const currentPath = currentFile()?.path;
+    const sameFolder = currentPath && dirnameOf(target).toLowerCase() === dirnameOf(currentPath).toLowerCase();
+    if (sameFolder) {
+      if (!(await maybeSaveBeforeNavigate())) return;
+      const fileSet = await desktopApi.listDxfFolder(target);
+      if (fileSet?.files?.length) {
+        state.files = fileSet.files;
+        state.fileIndex = Math.max(0, fileSet.index ?? 0);
+        await loadCurrentFile();
+      }
+    } else if (desktopApi?.openFileInWindow) {
+      await desktopApi.openFileInWindow(target);
     }
-  } else if (desktopApi?.openFileInWindow) {
-    await desktopApi.openFileInWindow(target);
+  } catch (error) {
+    reportDxfError("Could not open dropped DXF", error);
   }
 });
 
 resizeCanvas();
 syncUi();
-initDesktopBridge();
+initDesktopBridge().catch((error) => reportDxfError("Could not initialize the DXF viewer", error));
 renderAppVersion();
 
 async function renderAppVersion() {

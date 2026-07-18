@@ -1,6 +1,6 @@
 {
   "name": "excelsisview",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Local DXF viewer and editor for Windows.",
   "author": "Excelsis",
   "license": "GPL-3.0-only",
@@ -23,13 +23,18 @@
     "build:runtime": "install-electron",
     "build:vendor": "node scripts/build-vendor.cjs",
     "build:licenses": "node scripts/collect-licenses.cjs",
-    "verify": "node scripts/verify-release.cjs",
+    "build:shell": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-thumbnail-provider.ps1",
+    "test:limits": "node scripts/test-resource-limits.cjs && node scripts/test-renderer-parser.cjs",
+    "test:shell": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-thumbnail-provider.ps1 -RunTests",
+    "audit:shell": "node scripts/audit-thumbnail-provider.cjs",
+    "audit:runtime": "node scripts/audit-packaged-runtime.cjs",
+    "verify": "npm run test:limits && npm run test:shell && npm run audit:shell && node scripts/verify-release.cjs",
     "pack": "npm run build:runtime && npm run build:vendor && npm run build:licenses && npm run verify && electron-builder --dir",
     "dist": "npm run build:runtime && npm run build:vendor && npm run build:licenses && npm run verify && electron-builder --win nsis"
   },
   "devDependencies": {
     "concaveman": "2.0.0",
-    "electron": "43.1.0",
+    "electron": "43.1.1",
     "electron-builder": "26.15.3",
     "esbuild": "0.28.1",
     "resedit": "3.0.2"
@@ -38,6 +43,16 @@
     "appId": "local.excelsis.view",
     "productName": "ExcelsisView",
     "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "loadBrowserProcessSpecificV8Snapshot": false,
+      "grantFileProtocolExtraPrivileges": true
+    },
     "npmRebuild": false,
     "files": [
       "main.cjs",
@@ -69,6 +84,10 @@
       {
         "from": "third_party/licenses",
         "to": "third_party/licenses"
+      },
+      {
+        "from": "shell/thumbnail-provider/bin/x64/ExcelsisDxfThumbnailProvider.dll",
+        "to": "shell/ExcelsisDxfThumbnailProvider.dll"
       }
     ],
     "directories": {
@@ -92,6 +111,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
       "artifactName": "ExcelsisView-Setup-${version}.exe",
       "shortcutName": "ExcelsisView"
     }

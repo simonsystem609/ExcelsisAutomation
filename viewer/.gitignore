@@ -2,4 +2,6 @@ node_modules/
 dist/
 release/
 audit/
+shell/thumbnail-provider/bin/
+shell/thumbnail-provider/obj/
 *.log

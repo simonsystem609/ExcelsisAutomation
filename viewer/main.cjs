@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { fileURLToPath } = require("node:url");
+const dxfLimits = require("./modules/dxf/resource-limits.js");
 
 const APP_ID = "local.excelsis.view";
 const APP_NAME = "ExcelsisView";
@@ -32,13 +34,56 @@ function resolveDxfPath(filePath) {
   return path.resolve(filePath);
 }
 
-function normalizePath(filePath) {
-  const normalized = path.normalize(resolveDxfPath(filePath));
+function normalizeFsPath(filePath) {
+  const normalized = path.normalize(path.resolve(filePath));
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-function assertDxfText(text) {
-  if (typeof text !== "string") throw new TypeError("DXF content must be text.");
+function normalizePath(filePath) {
+  return normalizeFsPath(resolveDxfPath(filePath));
+}
+
+function dxfEntryPath() {
+  return path.join(__dirname, "modules", "dxf", "index.html");
+}
+
+function isTrustedDxfIpc(event) {
+  const sender = event?.sender;
+  const frame = event?.senderFrame;
+  if (!sender || sender.isDestroyed() || !frame || frame !== sender.mainFrame) return false;
+  try {
+    const senderUrl = new URL(frame.url);
+    if (senderUrl.protocol !== "file:") return false;
+    senderUrl.search = "";
+    senderUrl.hash = "";
+    return normalizeFsPath(fileURLToPath(senderUrl)) === normalizeFsPath(dxfEntryPath());
+  } catch {
+    return false;
+  }
+}
+
+function trustedIpcHandle(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isTrustedDxfIpc(event)) throw new Error(`Blocked untrusted IPC request: ${channel}`);
+    return handler(event, ...args);
+  });
+}
+
+function assertDxfOutputText(text) {
+  dxfLimits.assertOutputText(text);
+  dxfLimits.assertOutputBytes(Buffer.byteLength(text, "utf8"));
+}
+
+async function readDxfText(filePath) {
+  const resolved = resolveDxfPath(filePath);
+  const stat = await fs.stat(resolved);
+  if (!stat.isFile()) throw new Error("DXF path is not a file.");
+  dxfLimits.assertFileBytes(stat.size);
+  const data = await fs.readFile(resolved);
+  dxfLimits.assertFileBytes(data.byteLength);
+  const text = data.toString("utf8");
+  dxfLimits.assertInputText(text);
+  return text;
 }
 
 async function pathIsFile(filePath) {
@@ -59,14 +104,17 @@ async function findOpenArg(argv) {
 }
 
 async function dxfFilesInFolder(folderPath) {
-  const entries = await fs.readdir(folderPath, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === ".dxf")
-    .map((entry) => ({
+  const files = [];
+  const directory = await fs.opendir(folderPath);
+  for await (const entry of directory) {
+    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".dxf") continue;
+    dxfLimits.assertFolderFileCount(files.length + 1);
+    files.push({
       name: entry.name,
       path: path.join(folderPath, entry.name),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, {
+    });
+  }
+  return files.sort((a, b) => a.name.localeCompare(b.name, undefined, {
       numeric: true,
       sensitivity: "base",
     }));
@@ -143,7 +191,7 @@ function requireAvailableOutput(webContentsId, filePath) {
 
 async function writeDxfSiblingCopy(webContentsId, filePath, text, suffix) {
   const resolved = resolveDxfPath(filePath);
-  assertDxfText(text);
+  assertDxfOutputText(text);
   const parsed = path.parse(resolved);
   const outPath = path.join(parsed.dir, `${parsed.name}${suffix}.dxf`);
   requireAvailableOutput(webContentsId, outPath);
@@ -183,7 +231,7 @@ function releaseFileForWebContents(webContentsId) {
 }
 
 function createDxfWindow(fileSet = null) {
-  const entryPath = path.join(__dirname, "modules", "dxf", "index.html");
+  const entryPath = dxfEntryPath();
   const win = new BrowserWindow({
     title: APP_NAME,
     width: 1240,
@@ -237,24 +285,24 @@ async function openDxfInWindow(filePath) {
   return createDxfWindow(await fileSetForFile(resolved));
 }
 
-ipcMain.handle("app:get-version", () => app.getVersion());
-ipcMain.handle("app:get-initial-file-set", (event) => {
+trustedIpcHandle("app:get-version", () => app.getVersion());
+trustedIpcHandle("app:get-initial-file-set", (event) => {
   return pendingFileSets.get(event.sender.id) || null;
 });
 
-ipcMain.handle("fs:claim-dxf", (event, filePath) => {
+trustedIpcHandle("fs:claim-dxf", (event, filePath) => {
   return claimFileForWebContents(event.sender.id, filePath);
 });
 
-ipcMain.handle("fs:release-dxf", (event) => {
+trustedIpcHandle("fs:release-dxf", (event) => {
   return releaseFileForWebContents(event.sender.id);
 });
 
-ipcMain.handle("fs:is-file-open-elsewhere", (event, filePath) => {
+trustedIpcHandle("fs:is-file-open-elsewhere", (event, filePath) => {
   return lockStateFor(event.sender.id, filePath).readOnly;
 });
 
-ipcMain.handle("app:open-file-in-window", async (_event, filePath) => {
+trustedIpcHandle("app:open-file-in-window", async (_event, filePath) => {
   if (!isDxfPath(filePath)) return { ok: false, error: "Only DXF files are supported." };
   const resolved = resolveDxfPath(filePath);
   if (!(await pathIsFile(resolved))) return { ok: false, error: "File not found." };
@@ -262,36 +310,36 @@ ipcMain.handle("app:open-file-in-window", async (_event, filePath) => {
   return { ok: true };
 });
 
-ipcMain.handle("fs:read-dxf", async (_event, filePath) => {
-  return fs.readFile(resolveDxfPath(filePath), "utf8");
+trustedIpcHandle("fs:read-dxf", async (_event, filePath) => {
+  return readDxfText(filePath);
 });
 
-ipcMain.handle("fs:list-dxf-folder", async (_event, filePath) => {
+trustedIpcHandle("fs:list-dxf-folder", async (_event, filePath) => {
   return fileSetForFile(resolveDxfPath(filePath));
 });
 
-ipcMain.handle("fs:write-dxf", async (event, filePath, text) => {
+trustedIpcHandle("fs:write-dxf", async (event, filePath, text) => {
   const resolved = resolveDxfPath(filePath);
-  assertDxfText(text);
+  assertDxfOutputText(text);
   requireWriteClaim(event.sender.id, resolved);
   await fs.writeFile(resolved, text, "utf8");
   broadcastFileSaved(resolved, event.sender.id);
   return { ok: true };
 });
 
-ipcMain.handle("fs:write-dxf-fixed-copy", (event, filePath, text) => {
+trustedIpcHandle("fs:write-dxf-fixed-copy", (event, filePath, text) => {
   return writeDxfSiblingCopy(event.sender.id, filePath, text, "_fixed");
 });
 
-ipcMain.handle("fs:write-dxf-fixed-al-copy", (event, filePath, text) => {
+trustedIpcHandle("fs:write-dxf-fixed-al-copy", (event, filePath, text) => {
   return writeDxfSiblingCopy(event.sender.id, filePath, text, "_fixedAL");
 });
 
-ipcMain.handle("fs:write-dxf-scale-copy", (event, filePath, text) => {
+trustedIpcHandle("fs:write-dxf-scale-copy", (event, filePath, text) => {
   return writeDxfSiblingCopy(event.sender.id, filePath, text, "_scaled");
 });
 
-ipcMain.handle("fs:write-dxf-mirror-copy", (event, filePath, text) => {
+trustedIpcHandle("fs:write-dxf-mirror-copy", (event, filePath, text) => {
   return writeDxfSiblingCopy(event.sender.id, filePath, text, "_mirror");
 });
 

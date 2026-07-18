@@ -68,11 +68,32 @@ const ui = {
   gcodeAnalyzePanel: document.getElementById("gcodeAnalyzePanel"),
   gcodeSelectedFile: document.getElementById("gcodeSelectedFile"),
   gcodeChangeFileBtn: document.getElementById("gcodeChangeFileBtn"),
+  gcodeMethodAiBtn: document.getElementById("gcodeMethodAiBtn"),
+  gcodeMethodLocalBtn: document.getElementById("gcodeMethodLocalBtn"),
+  gcodeAiInputs: document.getElementById("gcodeAiInputs"),
+  gcodeLocalInputs: document.getElementById("gcodeLocalInputs"),
   gcodeMaterialInput: document.getElementById("gcodeMaterialInput"),
   gcodeMaterialOptions: document.getElementById("gcodeMaterialOptions"),
-  gcodeToolTypeInput: document.getElementById("gcodeToolTypeInput"),
-  gcodeToolTypeOptions: document.getElementById("gcodeToolTypeOptions"),
+  gcodeToolMaterialInput: document.getElementById("gcodeToolMaterialInput"),
+  gcodeToolMaterialOptions: document.getElementById("gcodeToolMaterialOptions"),
   gcodeAnalyzeBtn: document.getElementById("gcodeAnalyzeBtn"),
+  gcodeMaterialFamilyInput: document.getElementById("gcodeMaterialFamilyInput"),
+  gcodeMaterialGradeInput: document.getElementById("gcodeMaterialGradeInput"),
+  gcodeMaterialGradeOptions: document.getElementById("gcodeMaterialGradeOptions"),
+  gcodeHardnessInput: document.getElementById("gcodeHardnessInput"),
+  gcodeHardnessScale: document.getElementById("gcodeHardnessScale"),
+  gcodeMachineMaxRpm: document.getElementById("gcodeMachineMaxRpm"),
+  gcodeAggressiveness: document.getElementById("gcodeAggressiveness"),
+  gcodeAePercent: document.getElementById("gcodeAePercent"),
+  gcodeCoolingMode: document.getElementById("gcodeCoolingMode"),
+  gcodeContactMode: document.getElementById("gcodeContactMode"),
+  gcodeFluteCount: document.getElementById("gcodeFluteCount"),
+  gcodeLocalAnalyzeBtn: document.getElementById("gcodeLocalAnalyzeBtn"),
+  gcodeLocalActions: document.getElementById("gcodeLocalActions"),
+  gcodeOptimizedSuffix: document.getElementById("gcodeOptimizedSuffix"),
+  gcodeLocalRecalculateBtn: document.getElementById("gcodeLocalRecalculateBtn"),
+  gcodeLocalUpdateEstimateBtn: document.getElementById("gcodeLocalUpdateEstimateBtn"),
+  gcodeLocalCreateCopyBtn: document.getElementById("gcodeLocalCreateCopyBtn"),
   gcodeAnalyzeState: document.getElementById("gcodeAnalyzeState"),
   gcodeResults: document.getElementById("gcodeResults"),
   gcodeHistory: document.getElementById("gcodeHistory"),
@@ -80,7 +101,18 @@ const ui = {
   gcodeOpenChecksFolderBtn: document.getElementById("gcodeOpenChecksFolderBtn"),
   settingsGcodeSearchRoot: document.getElementById("settingsGcodeSearchRoot"),
   settingsGcodeMaterials: document.getElementById("settingsGcodeMaterials"),
-  settingsGcodeToolTypes: document.getElementById("settingsGcodeToolTypes"),
+  settingsGcodeToolMaterials: document.getElementById("settingsGcodeToolMaterials"),
+  settingsGcodeDefaultMillingToolMaterial: document.getElementById("settingsGcodeDefaultMillingToolMaterial"),
+  settingsGcodeDefaultDrillToolMaterial: document.getElementById("settingsGcodeDefaultDrillToolMaterial"),
+  settingsGcodeDefaultTapToolMaterial: document.getElementById("settingsGcodeDefaultTapToolMaterial"),
+  settingsGcodeMachineMaxRpm: document.getElementById("settingsGcodeMachineMaxRpm"),
+  settingsGcodeMachineMaxFeed: document.getElementById("settingsGcodeMachineMaxFeed"),
+  settingsGcodeAggressiveness: document.getElementById("settingsGcodeAggressiveness"),
+  settingsGcodeAePercent: document.getElementById("settingsGcodeAePercent"),
+  settingsGcodeCoolingMode: document.getElementById("settingsGcodeCoolingMode"),
+  settingsGcodeContactMode: document.getElementById("settingsGcodeContactMode"),
+  settingsGcodeFluteCount: document.getElementById("settingsGcodeFluteCount"),
+  settingsGcodeOptimizedSuffix: document.getElementById("settingsGcodeOptimizedSuffix"),
   settingsUiLanguage: document.getElementById("settingsUiLanguage"),
   settingsBomLanguage: document.getElementById("settingsBomLanguage"),
   settingsHotkeysEnabled: document.getElementById("settingsHotkeysEnabled"),
@@ -128,6 +160,8 @@ const state = {
   settings: null,
   defaults: null,
   settingsPath: "",
+  lastSettingsState: null,
+  lastCacheStats: null,
   solidCamSettings: { selectedDllPath: "", selectedTitle: "", selectedClsid: "" },
   solidCamAddins: [],
   solidCamStatusInFlight: false,
@@ -142,6 +176,11 @@ const state = {
   docSearchPollTimer: null,
   gcodeFiles: [],
   gcodeSelectedPath: "",
+  gcodeMethod: "ai",
+  gcodeMaterialGroups: [],
+  gcodeLocalSessionId: "",
+  gcodeLocalProposal: null,
+  gcodeLocalControlsDirty: false,
   gcodeAnalyzeInFlight: false,
   gcodeListInFlight: false,
   // After a file is picked the list collapses so the analyze form sits at the
@@ -173,9 +212,9 @@ function updateSolidWorksKillButton(health) {
   if (!ui.killSolidWorksBtn) return;
   const canKill = Boolean(health?.canKill);
   ui.killSolidWorksBtn.disabled = state.killSolidWorksInFlight || !canKill;
-  ui.killSolidWorksBtn.title = canKill
+  ui.killSolidWorksBtn.title = ta(canKill
     ? "Kill all SLDWORKS.exe processes for the unhealthy session"
-    : "Enabled only when Excelsis detects an unhealthy SOLIDWORKS session";
+    : "Enabled only when Excelsis detects an unhealthy SOLIDWORKS session");
 }
 
 function renderSolidWorksHealth(result) {
@@ -189,7 +228,7 @@ function renderSolidWorksHealth(result) {
     : "unknown";
   ui.swHealthStatus.classList.remove("healthy", "stopped", "loading", "unhealthy", "unknown");
   ui.swHealthStatus.classList.add(stateKey);
-  ui.swHealthStatus.textContent = health?.label || "SW health: checking...";
+  ui.swHealthStatus.textContent = t(health?.label || "SW health: checking...");
   const reasons = Array.isArray(health?.reasons) ? health.reasons.filter(Boolean) : [];
   ui.swHealthStatus.title = [health?.message || "", ...reasons].filter(Boolean).join("\n");
 }
@@ -282,16 +321,16 @@ function setStatus(result) {
   maybeLogSolidWorksHealthIssue(result);
   ui.swStatus.classList.remove("ok", "error", "idle");
   if (!result) {
-    ui.swStatus.textContent = "Not checked";
+    ui.swStatus.textContent = t("Not checked");
     ui.swStatus.classList.add("idle");
-    setActiveDocText("No active document loaded.");
+    setActiveDocText(t("No active document loaded."));
     return;
   }
   if (result.ok && result.connected) {
-    ui.swStatus.textContent = result.solidWorksBusy ? "Busy" : (result.startedSolidWorks ? "Started" : "Connected");
+    ui.swStatus.textContent = t(result.solidWorksBusy ? "Busy" : (result.startedSolidWorks ? "Started" : "Connected"));
     ui.swStatus.classList.add("ok");
   } else {
-    ui.swStatus.textContent = "Disconnected";
+    ui.swStatus.textContent = t("Disconnected");
     ui.swStatus.classList.add("error");
   }
   const doc = result.activeDocument;
@@ -318,12 +357,12 @@ function setStatus(result) {
   if (result.solidWorksBusy && state.lastSolidWorksDocument) {
     const last = state.lastSolidWorksDocument;
     const full = displayPathOf(last.path);
-    setActiveDocText(`SOLIDWORKS busy. Last seen: ${last.title}${full ? `  ${full}` : ""}`);
+    setActiveDocText(`${t("SOLIDWORKS busy. Last seen:")} ${last.title}${full ? `  ${full}` : ""}`);
     return;
   }
   setActiveDocText(result.connected
-    ? "Connected, but no foreground SOLIDWORKS document was found."
-    : "No active document loaded.");
+    ? t("Connected, but no foreground SOLIDWORKS document was found.")
+    : t("No active document loaded."));
 }
 
 function switchView(viewName) {
@@ -349,7 +388,7 @@ function renderMacroTiles() {
   if (!state.macroTiles.length) {
     const empty = document.createElement("div");
     empty.className = "response-preview muted";
-    empty.textContent = "No SOLIDWORKS macros found in the macro folder.";
+    empty.textContent = t("No SOLIDWORKS macros found in the macro folder.");
     ui.macroTileGrid.appendChild(empty);
     return;
   }
@@ -550,6 +589,9 @@ const workLoggerState = {
   lastDayMode: false,
   lastDayProjects: [],
   lastDayBackup: null,
+  exportDraftEntries: [],
+  exportProjectMinuteOverrides: {},
+  exportExcludedProjectKeys: new Set(),
 };
 
 function recentDocsScrollContainer() {
@@ -889,7 +931,7 @@ function readWorklogExportRules(options = {}) {
   const targetHoursMode = Boolean(ui.worklogExportTargetHoursMode?.checked);
   const targetHoursValue = Number(ui.worklogExportTargetHours?.value || 8);
   const targetHours = Math.max(0.5, Math.round((Number.isFinite(targetHoursValue) ? targetHoursValue : 8) * 2) / 2);
-  return {
+  const rules = {
     cutoffMinutes,
     multiplier,
     roundToMinutes,
@@ -901,6 +943,11 @@ function readWorklogExportRules(options = {}) {
     targetHoursMode,
     targetHours,
   };
+  if (options.includeTransient !== false) {
+    rules.excludedProjectKeys = Array.from(workLoggerState.exportExcludedProjectKeys);
+    rules.projectMinuteOverrides = { ...workLoggerState.exportProjectMinuteOverrides };
+  }
+  return rules;
 }
 
 function resetWorklogExportRuleInputs() {
@@ -920,6 +967,8 @@ function resetWorklogExportRuleInputs() {
   }
   if (ui.worklogExportTargetHoursMode) ui.worklogExportTargetHoursMode.checked = false;
   if (ui.worklogExportTargetHours) ui.worklogExportTargetHours.value = "8";
+  workLoggerState.exportProjectMinuteOverrides = {};
+  workLoggerState.exportExcludedProjectKeys = new Set();
 }
 
 // Load a saved/remembered rules object into the dialog inputs.
@@ -943,6 +992,9 @@ function applyWorklogExportRules(rules) {
     ui.worklogExportProjectWorkTypes.classList.toggle("hidden", !r.perProjectWorkTypes);
     if (!r.perProjectWorkTypes) ui.worklogExportProjectWorkTypes.replaceChildren();
   }
+  // Per-project hour edits and omissions are intentionally one-export-only.
+  workLoggerState.exportProjectMinuteOverrides = {};
+  workLoggerState.exportExcludedProjectKeys = new Set();
 }
 
 // Show the target input and grey out multiplier/round-up when target mode owns
@@ -960,8 +1012,14 @@ function syncWorklogTargetHoursUi() {
 
 // The dialog previews/exports today's live list, or the recovered last-day
 // backup when opened via "Export last day".
+function resetWorklogExportTransientState(entries = []) {
+  workLoggerState.exportDraftEntries = (Array.isArray(entries) ? entries : []).map((entry) => ({ ...entry }));
+  workLoggerState.exportProjectMinuteOverrides = {};
+  workLoggerState.exportExcludedProjectKeys = new Set();
+}
+
 function worklogExportSourceEntries() {
-  return workLoggerState.lastDayMode ? (workLoggerState.lastDayProjects || []) : (workLoggerState.entries || []);
+  return workLoggerState.exportDraftEntries || [];
 }
 
 // Mirror of the backend allocateTargetHoursMinutes so the preview matches the
@@ -1006,16 +1064,29 @@ function previewWorklogExport(entries, rules) {
     exportableEntries: [],
   };
   const maxMinutes = rules.splitByWorkType ? 48 * 60 : 24 * 60;
+  const excluded = new Set((rules.excludedProjectKeys || []).map((key) => String(key || "").trim().toLowerCase()));
+  const activeEntries = (entries || []).filter((entry) => !excluded.has(worklogProjectExportKey(entry)));
+  const applyOverride = (entry, roundedMinutes) => {
+    const key = worklogProjectExportKey(entry);
+    if (!Object.prototype.hasOwnProperty.call(rules.projectMinuteOverrides || {}, key)) return roundedMinutes;
+    const requested = Number(rules.projectMinuteOverrides[key]);
+    if (!Number.isFinite(requested)) return roundedMinutes;
+    return Math.max(1, Math.min(maxMinutes, Math.round(requested)));
+  };
   if (rules.targetHoursMode) {
-    const allocation = allocateTargetHoursMinutesJs(entries, rules);
+    const allocation = allocateTargetHoursMinutesJs(activeEntries, rules);
     for (const entry of entries || []) {
       const originalMinutes = Math.max(0, Number(entry?.totalMs || 0) / 60000);
       const key = worklogProjectExportKey(entry);
+      if (excluded.has(key)) {
+        result.skipped++;
+        continue;
+      }
       if (!allocation.has(key)) {
         result.skipped++;
         continue;
       }
-      const roundedMinutes = allocation.get(key);
+      const roundedMinutes = applyOverride(entry, allocation.get(key));
       if (roundedMinutes > maxMinutes) {
         result.skipped++;
         result.overLimit++;
@@ -1030,11 +1101,19 @@ function previewWorklogExport(entries, rules) {
   }
   for (const entry of entries || []) {
     const originalMinutes = Math.max(0, Number(entry?.totalMs || 0) / 60000);
+    if (excluded.has(worklogProjectExportKey(entry))) {
+      result.skipped++;
+      continue;
+    }
     if (originalMinutes + 1e-9 < rules.cutoffMinutes) {
       result.skipped++;
       continue;
     }
-    const roundedMinutes = Math.ceil((originalMinutes * rules.multiplier) / rules.roundToMinutes) * rules.roundToMinutes;
+    const ruleMinutes = Math.max(
+      rules.roundToMinutes,
+      Math.round((originalMinutes * rules.multiplier) / rules.roundToMinutes) * rules.roundToMinutes,
+    );
+    const roundedMinutes = applyOverride(entry, ruleMinutes);
     if (!Number.isFinite(roundedMinutes) || roundedMinutes <= 0) {
       result.skipped++;
       continue;
@@ -1065,7 +1144,11 @@ function createWorklogProjectWorkTypeSelect(projectKey, slot, selected) {
   return select;
 }
 
-function renderWorklogExportProjectWorkTypes() {
+function formatWorklogExportHours(minutes) {
+  return (Number(minutes || 0) / 60).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function renderWorklogExportProjectWorkTypes(options = {}) {
   syncWorklogProjectWorkTypeState();
   const split = Boolean(ui.worklogExportSplitByWorkType?.checked);
   if (ui.worklogExportSecondWorkTypeWrap) ui.worklogExportSecondWorkTypeWrap.classList.toggle("hidden", !split);
@@ -1077,31 +1160,97 @@ function renderWorklogExportProjectWorkTypes() {
     return;
   }
 
+  const previousScrollTop = options.preserveScroll === false
+    ? 0
+    : ui.worklogExportProjectWorkTypes.scrollTop;
   const rules = readWorklogExportRules({ skipProjectSync: true });
-  const preview = previewWorklogExport(worklogExportSourceEntries(), rules);
+  const entries = worklogExportSourceEntries();
+  const preview = previewWorklogExport(entries, rules);
+  // Keep omitted rows visible so an accidental cross can be undone. Their
+  // displayed hours come from a preview with omissions disabled; active rows
+  // use the real preview because target-hours allocation may have changed.
+  const displayPreview = previewWorklogExport(entries, { ...rules, excludedProjectKeys: [] });
+  const actualByKey = new Map(preview.exportableEntries.map((entry) => [worklogProjectExportKey(entry), entry]));
   const fragment = document.createDocumentFragment();
-  for (const entry of preview.exportableEntries) {
-    const key = worklogProjectExportKey(entry);
+  for (const displayEntry of displayPreview.exportableEntries) {
+    const key = worklogProjectExportKey(displayEntry);
+    const excluded = workLoggerState.exportExcludedProjectKeys.has(key);
+    const entry = actualByKey.get(key) || displayEntry;
     const saved = Array.isArray(workLoggerState.projectWorkTypes[key])
       ? workLoggerState.projectWorkTypes[key]
       : [];
     const row = document.createElement("div");
     row.className = `worklog-export-project-type-row${split ? " split" : ""}`;
+    row.classList.toggle("excluded", excluded);
     const info = document.createElement("div");
     info.className = "worklog-export-project-name";
     info.innerHTML = `
       <span>Project</span>
       <strong title="${escapeAttr(entry.name || "")}">${escapeHtml(entry.name || "Unknown project")}</strong>
-      <small>${escapeHtml(`${formatProjectActivity(entry)} -> ${entry.roundedMinutes} min`)}</small>
+      <small>${escapeHtml(`${formatProjectActivity(entry)} -> ${formatWorklogExportHours(entry.roundedMinutes)} h`)}</small>
     `;
     row.appendChild(info);
-    row.appendChild(createWorklogProjectWorkTypeSelect(key, "primary", saved[0] || rules.defaultWorkType));
+
+    const hourControl = document.createElement("div");
+    hourControl.className = "worklog-export-hour-control";
+    const minus = document.createElement("button");
+    minus.type = "button";
+    minus.className = "worklog-export-hour-button";
+    minus.textContent = "-";
+    minus.title = "Subtract 0.5 hours from this export";
+    minus.setAttribute("aria-label", minus.title);
+    const hourValue = document.createElement("span");
+    hourValue.className = "worklog-export-hour-value";
+    hourValue.textContent = `${formatWorklogExportHours(entry.roundedMinutes)} h`;
+    const plus = document.createElement("button");
+    plus.type = "button";
+    plus.className = "worklog-export-hour-button";
+    plus.textContent = "+";
+    plus.title = "Add 0.5 hours to this export";
+    plus.setAttribute("aria-label", plus.title);
+    minus.disabled = excluded || entry.roundedMinutes <= 30;
+    plus.disabled = excluded || entry.roundedMinutes >= (split ? 48 * 60 : 24 * 60);
+    const adjustHours = (deltaMinutes) => {
+      const current = Object.prototype.hasOwnProperty.call(workLoggerState.exportProjectMinuteOverrides, key)
+        ? Number(workLoggerState.exportProjectMinuteOverrides[key])
+        : Number(entry.roundedMinutes);
+      const maxMinutes = split ? 48 * 60 : 24 * 60;
+      workLoggerState.exportProjectMinuteOverrides[key] = Math.max(1, Math.min(maxMinutes, current + deltaMinutes));
+      renderWorklogExportProjectWorkTypes({ preserveScroll: true });
+      updateWorklogExportPreview();
+    };
+    minus.addEventListener("click", () => adjustHours(-30));
+    plus.addEventListener("click", () => adjustHours(30));
+    hourControl.append(minus, hourValue, plus);
+    row.appendChild(hourControl);
+
+    const primarySelect = createWorklogProjectWorkTypeSelect(key, "primary", saved[0] || rules.defaultWorkType);
+    primarySelect.disabled = excluded;
+    row.appendChild(primarySelect);
     if (split) {
-      row.appendChild(createWorklogProjectWorkTypeSelect(key, "secondary", saved[1] || rules.splitWorkTypes[1]));
+      const secondarySelect = createWorklogProjectWorkTypeSelect(key, "secondary", saved[1] || rules.splitWorkTypes[1]);
+      secondarySelect.disabled = excluded;
+      row.appendChild(secondarySelect);
     }
+
+    const excludeButton = document.createElement("button");
+    excludeButton.type = "button";
+    excludeButton.className = "worklog-export-exclude-button";
+    excludeButton.textContent = "\u00d7";
+    excludeButton.title = excluded ? "Restore to this export" : "Exclude from this export";
+    excludeButton.setAttribute("aria-label", excludeButton.title);
+    excludeButton.setAttribute("aria-pressed", String(excluded));
+    excludeButton.addEventListener("click", () => {
+      if (excluded) workLoggerState.exportExcludedProjectKeys.delete(key);
+      else workLoggerState.exportExcludedProjectKeys.add(key);
+      renderWorklogExportProjectWorkTypes({ preserveScroll: true });
+      updateWorklogExportPreview();
+    });
+    row.appendChild(excludeButton);
     fragment.appendChild(row);
   }
   ui.worklogExportProjectWorkTypes.replaceChildren(fragment);
+  ui.worklogExportProjectWorkTypes.scrollTop = previousScrollTop;
 }
 
 function updateWorklogExportPreview() {
@@ -1117,9 +1266,9 @@ function updateWorklogExportPreview() {
   if (ui.confirmWorklogExportBtn) ui.confirmWorklogExportBtn.disabled = preview.exported <= 0;
 }
 
-function updateWorklogExportControls() {
+function updateWorklogExportControls(options = {}) {
   syncWorklogTargetHoursUi();
-  renderWorklogExportProjectWorkTypes();
+  renderWorklogExportProjectWorkTypes(options);
   updateWorklogExportPreview();
 }
 
@@ -1128,6 +1277,7 @@ function setWorklogExportDialogOpen(open) {
   ui.worklogExportDialog.classList.toggle("hidden", !open);
   if (!open) {
     workLoggerState.lastDayMode = false;
+    resetWorklogExportTransientState();
     return;
   }
   if (ui.worklogExportTitle) {
@@ -1147,12 +1297,13 @@ function setWorklogExportDialogOpen(open) {
       ui.worklogExportState.classList.add("muted");
     }
   }
-  updateWorklogExportControls();
+  updateWorklogExportControls({ preserveScroll: false });
   requestAnimationFrame(() => ui.worklogExportCutoffMinutes?.focus());
 }
 
 async function openWorklogExportDialog(options = {}) {
   workLoggerState.lastDayMode = Boolean(options.lastDay);
+  resetWorklogExportTransientState();
   await loadWorklogWorkTypes();
   // Restore the last-used settings (from a previous export or the Set button),
   // falling back to defaults the first time.
@@ -1169,8 +1320,10 @@ async function openWorklogExportDialog(options = {}) {
     workLoggerState.lastDayProjects = Array.isArray(options.projects)
       ? options.projects
       : (workLoggerState.lastDayBackup?.projects || []);
+    resetWorklogExportTransientState(workLoggerState.lastDayProjects);
   } else {
     await refreshWorkLoggerList();
+    resetWorklogExportTransientState(workLoggerState.entries);
   }
   setWorklogExportDialogOpen(true);
 }
@@ -1476,14 +1629,14 @@ function updateWorkLoggerStateText(result = null) {
   if (result?.path) workLoggerState.path = result.path;
   if (result?.activeDate) workLoggerState.activeDate = result.activeDate;
   const entries = workLoggerState.entries || [];
-  const dateText = workLoggerState.activeDate ? `Today: ${workLoggerState.activeDate}. ` : "";
+  const dateText = workLoggerState.activeDate ? `${t("Today:")} ${workLoggerState.activeDate}. ` : "";
   if (!entries.length) {
-    ui.workLoggerState.textContent = `${dateText}No project work logs yet. Open a SOLIDWORKS document and work with SOLIDWORKS foreground to start counting.`;
+    ui.workLoggerState.textContent = `${dateText}${t("No project work logs yet. Open a SOLIDWORKS document and work with SOLIDWORKS foreground to start counting.")}`;
     return;
   }
   const shown = Math.min(workLoggerState.renderedCount, entries.length);
-  const pathText = workLoggerState.path ? `\nLog file: ${workLoggerState.path}` : "";
-  ui.workLoggerState.textContent = `${dateText}Projects: ${entries.length}. Sorted by last work done. Showing ${shown}/${entries.length}.${pathText}`;
+  const pathText = workLoggerState.path ? `\n${t("Log file:")} ${workLoggerState.path}` : "";
+  ui.workLoggerState.textContent = `${dateText}${t("Projects:")} ${entries.length}. ${t("Sorted by last work done.")} ${t("Showing")} ${shown}/${entries.length}.${pathText}`;
 }
 
 function maybeLoadMoreWorklogs() {
@@ -1520,9 +1673,6 @@ function renderWorkLogger(projects, result = {}) {
     updateWorkLoggerStateText(result);
   }
   renderAutoExportStatus(result.autoExport);
-  if (ui.worklogExportDialog && !ui.worklogExportDialog.classList.contains("hidden")) {
-    updateWorklogExportControls();
-  }
 }
 
 // Reassuring one-liner about the nightly auto-export: last outcome + next run.
@@ -1829,6 +1979,73 @@ async function createCamFolder() {
 // the text of leaf elements (and placeholders/titles) that have an entry, and
 // can revert to English. Dynamic status text is localized separately.
 const I18N_HU = {
+  // Runtime status, accessibility, and settings strings.
+  "Not checked": "Nincs ellen\u0151rizve",
+  "Busy": "Foglalt",
+  "Selected:": "Kiv\u00e1lasztva:",
+  "(no title)": "(nincs c\u00edm)",
+  "Started": "Elind\u00edtva",
+  "Connected": "Kapcsol\u00f3dva",
+  "Disconnected": "Nincs kapcsolat",
+  "No active document loaded.": "Nincs bet\u00f6ltve akt\u00edv dokumentum.",
+  "Connected, but no foreground SOLIDWORKS document was found.": "Kapcsol\u00f3dva, de nem tal\u00e1lhat\u00f3 el\u0151t\u00e9rben l\u00e9v\u0151 SOLIDWORKS dokumentum.",
+  "SOLIDWORKS busy. Last seen:": "A SOLIDWORKS foglalt. Utolj\u00e1ra l\u00e1tva:",
+  "SW health: checking...": "SW \u00e1llapot: ellen\u0151rz\u00e9s...",
+  "SW health: healthy": "SW \u00e1llapot: rendben",
+  "SW health: unhealthy": "SW \u00e1llapot: hib\u00e1s",
+  "SW health: loading": "SW \u00e1llapot: bet\u00f6lt\u00e9s",
+  "SW health: not running": "SW \u00e1llapot: nem fut",
+  "SW health: stopped": "SW \u00e1llapot: le\u00e1ll\u00edtva",
+  "SW health: busy": "SW \u00e1llapot: foglalt",
+  "Auto-export status loading...": "Automatikus export \u00e1llapot\u00e1nak bet\u00f6lt\u00e9se...",
+  "SolidCAM: checking": "SolidCAM: ellen\u0151rz\u00e9s",
+  "SolidCAM: not selected": "SolidCAM: nincs kiv\u00e1lasztva",
+  "SolidCAM: status error": "SolidCAM: \u00e1llapothiba",
+  "SolidCAM: loaded": "SolidCAM: bet\u00f6ltve",
+  "SolidCAM: not loaded": "SolidCAM: nincs bet\u00f6ltve",
+  "SolidCAM: SW not running": "SolidCAM: a SW nem fut",
+  "SolidCAM: unknown": "SolidCAM: ismeretlen",
+  "No SOLIDWORKS macros found in the macro folder.": "Nem tal\u00e1lhat\u00f3 SOLIDWORKS makr\u00f3 a makr\u00f3mapp\u00e1ban.",
+  "No project work logs yet. Open a SOLIDWORKS document and work with SOLIDWORKS foreground to start counting.":
+    "M\u00e9g nincs projekt-munkanapl\u00f3. Nyiss meg egy SOLIDWORKS dokumentumot, majd dolgozz vele el\u0151t\u00e9rben a sz\u00e1mol\u00e1s elind\u00edt\u00e1s\u00e1hoz.",
+  "Today:": "Ma:",
+  "Projects:": "Projektek:",
+  "Sorted by last work done.": "Az utols\u00f3 munkav\u00e9gz\u00e9s szerint rendezve.",
+  "Showing": "Megjelen\u00edtve",
+  "Log file:": "Napl\u00f3f\u00e1jl:",
+  "Project locations": "Projekt-helyek",
+  "How projects are recognized \u2014 change these to run Excelsis Helper at another shop":
+    "A projektek felismer\u00e9s\u00e9nek szab\u00e1lyai; m\u00f3dos\u00edtsd ezeket, ha az Excelsis Helpert m\u00e1sik c\u00e9gn\u00e9l haszn\u00e1lod",
+  "Project root folder names (one per line)": "Projektgy\u00f6k\u00e9r-mapp\u00e1k nevei (soronk\u00e9nt egy)",
+  "Click Search to enumerate SolidCAM add-ins registered with SOLIDWORKS.":
+    "Kattints a Keres\u00e9s gombra a SOLIDWORKS-ben regisztr\u00e1lt SolidCAM b\u0151v\u00edtm\u00e9nyek list\u00e1z\u00e1s\u00e1hoz.",
+  "Settings loaded.": "Be\u00e1ll\u00edt\u00e1sok bet\u00f6ltve.",
+  "Settings saved.": "Be\u00e1ll\u00edt\u00e1sok mentve.",
+  "Settings imported.": "Be\u00e1ll\u00edt\u00e1sok import\u00e1lva.",
+  "Settings reset to defaults.": "Be\u00e1ll\u00edt\u00e1sok vissza\u00e1ll\u00edtva az alap\u00e9rt\u00e9kekre.",
+  "Settings group reset:": "Be\u00e1ll\u00edt\u00e1scsoport vissza\u00e1ll\u00edtva:",
+  "Settings file:": "Be\u00e1ll\u00edt\u00e1sf\u00e1jl:",
+  "Settings exported.": "Be\u00e1ll\u00edt\u00e1sok export\u00e1lva.",
+  "Settings load failed:": "A be\u00e1ll\u00edt\u00e1sok bet\u00f6lt\u00e9se nem siker\u00fclt:",
+  "Settings save failed:": "A be\u00e1ll\u00edt\u00e1sok ment\u00e9se nem siker\u00fclt:",
+  "Settings import canceled.": "A be\u00e1ll\u00edt\u00e1sok import\u00e1l\u00e1sa megszak\u00edtva.",
+  "Settings import failed:": "A be\u00e1ll\u00edt\u00e1sok import\u00e1l\u00e1sa nem siker\u00fclt:",
+  "Settings export canceled.": "A be\u00e1ll\u00edt\u00e1sok export\u00e1l\u00e1sa megszak\u00edtva.",
+  "Settings export failed:": "A be\u00e1ll\u00edt\u00e1sok export\u00e1l\u00e1sa nem siker\u00fclt:",
+  "Settings group reset failed:": "A be\u00e1ll\u00edt\u00e1scsoport vissza\u00e1ll\u00edt\u00e1sa nem siker\u00fclt:",
+  "Settings reset failed:": "A be\u00e1ll\u00edt\u00e1sok vissza\u00e1ll\u00edt\u00e1sa nem siker\u00fclt:",
+  "Cache size check failed:": "A gyors\u00edt\u00f3t\u00e1r m\u00e9ret\u00e9nek ellen\u0151rz\u00e9se nem siker\u00fclt:",
+  "File:": "F\u00e1jl:",
+  "Total cache:": "Teljes gyors\u00edt\u00f3t\u00e1r:",
+  "Doc Search:": "Dokumentumkeres\u00e9s:",
+  "indexed files; updated": "indexelt f\u00e1jl; friss\u00edtve",
+  "Recent thumbnails:": "Legut\u00f3bbi b\u00e9lyegk\u00e9pek:",
+  "files": "f\u00e1jl",
+  "Background workers:": "H\u00e1tt\u00e9rfolyamatok:",
+  "active;": "akt\u00edv;",
+  "queued": "v\u00e1rakozik",
+  "Doc Search path:": "Dokumentumkeres\u00e9s helye:",
+  "never": "soha",
   // Header + sidebar
   "SOLIDWORKS workflow helper": "SOLIDWORKS munkafolyamat-segéd",
   "Copy Doc Location": "Dok. hely másolása",
@@ -1843,6 +2060,13 @@ const I18N_HU = {
   "Newest .MPF programs from the CNC drive.": "A legújabb .MPF programok a CNC meghajtóról.",
   "Analyze program": "Program elemzése",
   "Material": "Anyag",
+  "Tool material override (optional)": "Szersz\u00e1manyag fel\u00fclb\u00edr\u00e1l\u00e1sa (opcion\u00e1lis)",
+  "Default milling tool material": "Mar\u00f3szersz\u00e1m alap\u00e9rtelmezett anyaga",
+  "Default drill/tap material": "F\u00far\u00f3/menetf\u00far\u00f3 alap\u00e9rtelmezett anyaga",
+  "Remembered tool material overrides (one per line)": "Megjegyzett szersz\u00e1manyag-fel\u00fclb\u00edr\u00e1l\u00e1sok (soronk\u00e9nt egy)",
+  "Open file location": "F\u00e1jl hely\u00e9nek megnyit\u00e1sa",
+  "Milling": "Mar\u00e1s",
+  "drills": "f\u00far\u00f3k",
   "Tool type": "Szerszámtípus",
   "Analyze + Create AI Prompt": "Elemzés + AI prompt készítése",
   "Select different MPF": "Másik MPF választása",
@@ -2000,14 +2224,147 @@ const I18N_HU = {
   "Cache size not checked yet.": "A gyorsítótár mérete még nincs ellenőrizve.",
   "Settings not loaded yet.": "A beállítások még nincsenek betöltve.",
   "Log": "Napló",
+  // Local G-code method
+  "AI prompt": "AI prompt",
+  "Local method": "Helyi m\u00f3dszer",
+  "Material group": "Anyagcsoport",
+  "Choose material group": "V\u00e1lassz anyagcsoportot",
+  "Steel": "Ac\u00e9l",
+  "Aluminium": "Alum\u00ednium",
+  "Copper and copper alloys": "R\u00e9z \u00e9s r\u00e9z\u00f6tv\u00f6zetek",
+  "Plastic": "M\u0171anyag",
+  "Exact material / grade (optional)": "Pontos anyag / min\u0151s\u00e9g (opcion\u00e1lis)",
+  "Hardness (optional)": "Kem\u00e9nys\u00e9g (opcion\u00e1lis)",
+  "Machine maximum RPM": "G\u00e9p maxim\u00e1lis fordulatsz\u00e1ma",
+  "Aggressiveness": "Terhel\u00e9si szint",
+  "Conservative": "Konzervat\u00edv",
+  "Balanced": "Kiegyens\u00falyozott",
+  "Slightly aggressive": "Enyh\u00e9n agressz\u00edv",
+  "Radial engagement ae (%)": "Radi\u00e1lis fog\u00e1s ae (%)",
+  "Cooling": "H\u0171t\u00e9s",
+  "Dry": "Sz\u00e1raz",
+  "Air": "Leveg\u0151",
+  "Mist": "K\u00f6dken\u00e9s",
+  "Air + MQL": "Leveg\u0151 + MQL",
+  "Flood": "B\u0151s\u00e9ges h\u0171t\u00e9s",
+  "Through-tool": "Szersz\u00e1mon kereszt\u00fcl",
+  "Contact mode": "Kapcsol\u00f3d\u00e1si m\u00f3d",
+  "Side milling": "Oldalmar\u00e1s",
+  "Floor / tip": "Fen\u00e9k / cs\u00facs",
+  "Wall / side": "Fal / oldal",
+  "Mixed 3D": "Vegyes 3D",
+  "Unknown": "Ismeretlen",
+  "Other": "Egy\u00e9b",
+  "Default flute / edge count": "Alap\u00e9rtelmezett \u00e9lsz\u00e1m",
+  "Calculate local proposal": "Helyi javaslat sz\u00e1m\u00edt\u00e1sa",
+  "Copy suffix": "M\u00e1solat ut\u00f3tagja",
+  "Recalculate": "\u00dajrasz\u00e1m\u00edt\u00e1s",
+  "Update estimate": "Becsl\u00e9s friss\u00edt\u00e9se",
+  "Create optimized copy": "Optimaliz\u00e1lt m\u00e1solat l\u00e9trehoz\u00e1sa",
+  "Default drill tool material": "F\u00far\u00f3 alap\u00e9rtelmezett anyaga",
+  "Default tap tool material": "Menetf\u00far\u00f3 alap\u00e9rtelmezett anyaga",
+  "Machine maximum feed (mm/min)": "G\u00e9p maxim\u00e1lis el\u0151tol\u00e1sa (mm/min)",
+  "Default aggressiveness": "Alap\u00e9rtelmezett terhel\u00e9si szint",
+  "Default ae (%)": "Alap\u00e9rtelmezett ae (%)",
+  "Default cooling": "Alap\u00e9rtelmezett h\u0171t\u00e9s",
+  "Default contact mode": "Alap\u00e9rtelmezett kapcsol\u00f3d\u00e1si m\u00f3d",
+  "Optimized copy suffix": "Optimaliz\u00e1lt m\u00e1solat ut\u00f3tagja",
+  "Choose a material group.": "V\u00e1lassz anyagcsoportot.",
+  "Calculating local proposal...": "Helyi javaslat sz\u00e1m\u00edt\u00e1sa...",
+  "tool(s) need operator input.": "szersz\u00e1m kezel\u0151i adatot ig\u00e9nyel.",
+  "accepted change group(s).": "elfogadott m\u00f3dos\u00edt\u00e1si csoport.",
+  "Update failed:": "A friss\u00edt\u00e9s nem siker\u00fclt:",
+  "Estimate updated.": "A becsl\u00e9s friss\u00fclt.",
+  "Verifying proposed changes...": "Javasolt m\u00f3dos\u00edt\u00e1sok ellen\u0151rz\u00e9se...",
+  "Copy failed:": "A m\u00e1sol\u00e1s nem siker\u00fclt:",
+  "Copy canceled.": "A m\u00e1sol\u00e1s megszak\u00edtva.",
+  "Optimized copy created:": "Optimaliz\u00e1lt m\u00e1solat elk\u00e9sz\u00fclt:",
+  "Estimated time": "Becs\u00fclt id\u0151",
+  "Change": "V\u00e1ltoz\u00e1s",
+  "Accepted edits": "Elfogadott m\u00f3dos\u00edt\u00e1sok",
+  "Required": "K\u00f6telez\u0151",
+  "Current program": "Jelenlegi program",
+  "Calculated target": "Sz\u00e1m\u00edtott c\u00e9l\u00e9rt\u00e9k",
+  "Tool material": "Szersz\u00e1manyag",
+  "Diameter (mm)": "\u00c1tm\u00e9r\u0151 (mm)",
+  "Flute / edge count": "\u00c9lsz\u00e1m",
+  "Axial depth ap (mm)": "Axi\u00e1lis fog\u00e1s ap (mm)",
+  "MPF Z-level estimate": "MPF Z-szint becsl\u00e9s",
+  "MPF entry-motion estimate": "MPF bel\u00e9p\u00e9si mozg\u00e1s becsl\u00e9s",
+  "Operator value": "Kezel\u0151i \u00e9rt\u00e9k",
+  "High confidence": "Magas megb\u00edzhat\u00f3s\u00e1g",
+  "Medium confidence": "K\u00f6zepes megb\u00edzhat\u00f3s\u00e1g",
+  "Low confidence - verify": "Alacsony megb\u00edzhat\u00f3s\u00e1g - ellen\u0151rizd",
+  "samples": "minta",
+  "Inputs changed. Recalculate before creating the copy.": "Az adatok megv\u00e1ltoztak. A m\u00e1solat l\u00e9trehoz\u00e1sa el\u0151tt sz\u00e1m\u00edtsd \u00fajra.",
+  "Feature depth (mm)": "Alakzatm\u00e9lys\u00e9g (mm)",
+  "Hole depth (mm)": "Furatm\u00e9lys\u00e9g (mm)",
+  "Thread depth (mm)": "Menetm\u00e9lys\u00e9g (mm)",
+  "Pitch (mm)": "Menetemelked\u00e9s (mm)",
+  "Detected pitch (mm)": "Felismert menetemelked\u00e9s (mm)",
+  "Operator-confirmed pitch (mm)": "Kezel\u0151 \u00e1ltal meger\u0151s\u00edtett menetemelked\u00e9s (mm)",
+  "Tap style": "Menetf\u00far\u00f3 t\u00edpusa",
+  "Hole type": "Furat t\u00edpusa",
+  "Pre-drill diameter (mm)": "El\u0151f\u00far\u00e1s \u00e1tm\u00e9r\u0151je (mm)",
+  "Select": "V\u00e1lassz",
+  "Cut tap": "Forg\u00e1csol\u00f3 menetf\u00far\u00f3",
+  "Form tap": "Menetform\u00e1z\u00f3",
+  "Blind": "Zs\u00e1kfurat",
+  "Through": "\u00c1tmen\u0151 furat",
+  "milling": "mar\u00e1s",
+  "drilling": "f\u00far\u00e1s",
+  "tapping": "menetf\u00far\u00e1s",
+  "provisional": "ideiglenes",
+  "needs_input": "adat kell",
+  "needs_confirmation": "meger\u0151s\u00edt\u00e9s kell",
+  "unsupported": "nem t\u00e1mogatott",
+  "unsafe": "nem biztons\u00e1gos",
+  "conflict": "ellentmond\u00e1s",
+  "error": "hiba",
+  "spindle": "ors\u00f3fordulat",
+  "synchronized_tapping": "szinkron menetf\u00far\u00e1s",
+  "cutting": "megmunk\u00e1l\u00e1s",
+  "canned_cycle": "f\u00far\u00f3ciklus",
+  "plunge": "f\u00fcgg\u0151leges bel\u00e9p\u00e9s",
+  "ramp": "r\u00e1mpa",
+  "helix": "helik\u00e1lis bel\u00e9p\u00e9s",
+  "lead": "be- / kivezet\u00e9s",
+  "mixed": "vegyes",
+  "apMm": "ap (mm)",
+  "featureDepthMm": "alakzatm\u00e9lys\u00e9g",
+  "diameterMm": "\u00e1tm\u00e9r\u0151",
+  "fluteCount": "\u00e9lsz\u00e1m",
+  "holeDepthMm": "furatm\u00e9lys\u00e9g",
+  "Axial depth ap": "Axi\u00e1lis fog\u00e1s ap",
+  "Radial engagement ae": "Radi\u00e1lis fog\u00e1ssz\u00e9less\u00e9g ae",
+  "Supported tool type": "T\u00e1mogatott szersz\u00e1mt\u00edpus",
+  "Thread depth": "Menetm\u00e9lys\u00e9g",
+  "Tap style and hole type": "Menetf\u00far\u00f3- \u00e9s furatt\u00edpus",
+  "Thread pitch": "Menetemelked\u00e9s",
 };
 const I18N_HU_ATTR = {
+  "Automation sections": "Automatiz\u00e1l\u00e1si ter\u00fcletek",
+  "Assembly tools": "\u00d6ssze\u00e1ll\u00edt\u00e1si eszk\u00f6z\u00f6k",
+  "Analysis method": "Elemz\u00e9si m\u00f3dszer",
+  "SolidCAM add-ins": "SolidCAM b\u0151v\u00edtm\u00e9nyek",
+  "Kill all SLDWORKS.exe processes for the unhealthy session": "Az \u00f6sszes SLDWORKS.exe folyamat le\u00e1ll\u00edt\u00e1sa a hib\u00e1s munkamenethez",
+  "Enabled only when Excelsis detects an unhealthy SOLIDWORKS session": "Csak akkor akt\u00edv, ha az Excelsis hib\u00e1s SOLIDWORKS munkamenetet \u00e9szlel",
+  "Load the selected SolidCAM add-in into SOLIDWORKS": "A kiv\u00e1lasztott SolidCAM b\u0151v\u00edtm\u00e9ny bet\u00f6lt\u00e9se a SOLIDWORKS-be",
+  "Unload the selected SolidCAM add-in from SOLIDWORKS": "A kiv\u00e1lasztott SolidCAM b\u0151v\u00edtm\u00e9ny elt\u00e1vol\u00edt\u00e1sa a SOLIDWORKS-b\u0151l",
+  "Create the CAM folder for the active SOLIDWORKS document and copy it to clipboard": "CAM mappa l\u00e9trehoz\u00e1sa az akt\u00edv SOLIDWORKS dokumentumhoz \u00e9s az \u00fatvonal v\u00e1g\u00f3lapra m\u00e1sol\u00e1sa",
+  "Retry only missing thumbnails with Windows and SOLIDWORKS preview APIs": "Csak a hi\u00e1nyz\u00f3 b\u00e9lyegk\u00e9pek \u00fajrapr\u00f3b\u00e1l\u00e1sa Windows- \u00e9s SOLIDWORKS-el\u0151n\u00e9zeti API-kkal",
+  "Save these settings for later exports without exporting now": "A be\u00e1ll\u00edt\u00e1sok ment\u00e9se k\u00e9s\u0151bbi exporthoz, export\u00e1l\u00e1s n\u00e9lk\u00fcl",
+  "Milling: Carbide; drills: HSS": "Mar\u00e1s: Carbide; f\u00far\u00f3k: HSS",
+  "Leave blank to use the configured milling and drill defaults": "Hagyd \u00fcresen a be\u00e1ll\u00edtott mar\u00f3- \u00e9s f\u00far\u00f3-alap\u00e9rt\u00e9kek haszn\u00e1lat\u00e1hoz",
   "Search filename or path...": "Keresés fájlnév vagy útvonal szerint...",
   "Search filename snippets...": "Keresés fájlnévrészletek szerint...",
   "e.g. 1.2312 steel / AlMgSi1": "pl. 1.2312 acél / AlMgSi1",
   "e.g. carbide endmill": "pl. keményfém szármaró",
   "Leave blank to use the SOLIDWORKS default": "Hagyd üresen a SOLIDWORKS alapértékéhez",
   "Open the folder holding the generated AI prompt files": "A generált AI prompt fájlok mappájának megnyitása",
+  "Leave blank to use the configured milling, drill, and tap defaults": "Hagyd \u00fcresen a be\u00e1ll\u00edtott mar\u00f3-, f\u00far\u00f3- \u00e9s menetf\u00far\u00f3-alap\u00e9rt\u00e9kek haszn\u00e1lat\u00e1hoz",
+  "Aluminum": "Alum\u00ednium",
+  "Other": "Egy\u00e9b",
 };
 
 function normalizeI18nText(value) {
@@ -2029,6 +2386,24 @@ function t(text) {
   return I18N_HU[normalizeI18nText(text)] || text;
 }
 
+function ta(text) {
+  if (currentUiLanguage !== "hu") return text;
+  const normalized = normalizeI18nText(text);
+  return I18N_HU_ATTR[normalized] || I18N_HU[normalized] || text;
+}
+
+function translatedUiText(text, hu) {
+  const map = hu ? I18N_HU : I18N_EN;
+  const direct = map[text];
+  if (direct) return direct;
+  for (const [source, target] of Object.entries(map)) {
+    if (source.endsWith(":") && text.startsWith(`${source} `)) {
+      return `${target}${text.slice(source.length)}`;
+    }
+  }
+  return "";
+}
+
 // Stateless: translate by matching the CURRENT text against the en->hu map (when
 // going to Hungarian) or the hu->en map (when reverting). Elements whose text was
 // replaced dynamically by JS (not in either map) are left untouched, so toggling
@@ -2041,15 +2416,17 @@ function applyUiLanguage(lang) {
     if (el.children.length > 0) return; // leaf text only
     const cur = normalizeI18nText(el.textContent);
     if (!cur) return;
-    const next = hu ? I18N_HU[cur] : I18N_EN[cur];
+    const next = translatedUiText(cur, hu);
     if (next && next !== el.textContent) el.textContent = next;
   });
-  document.querySelectorAll("[placeholder], [title]").forEach((el) => {
-    for (const attr of ["placeholder", "title"]) {
+  document.querySelectorAll("[placeholder], [title], [aria-label]").forEach((el) => {
+    for (const attr of ["placeholder", "title", "aria-label"]) {
       if (!el.hasAttribute(attr)) continue;
       const cur = normalizeI18nText(el.getAttribute(attr));
       if (!cur) continue;
-      const next = hu ? I18N_HU_ATTR[cur] : I18N_EN_ATTR[cur];
+      const next = hu
+        ? (I18N_HU_ATTR[cur] || I18N_HU[cur])
+        : (I18N_EN_ATTR[cur] || I18N_EN[cur]);
       if (next) el.setAttribute(attr, next);
     }
   });
@@ -2076,7 +2453,354 @@ function fillGcodeDatalists(gcode) {
     }
   };
   fill(ui.gcodeMaterialOptions, gcode?.materials);
-  fill(ui.gcodeToolTypeOptions, gcode?.toolTypes);
+  const toolMaterials = [
+    gcode?.defaultMillingToolMaterial,
+    gcode?.defaultDrillToolMaterial,
+    gcode?.defaultTapToolMaterial,
+    ...(Array.isArray(gcode?.toolMaterials) ? gcode.toolMaterials : []),
+  ].filter((value, index, list) => value && list.findIndex((item) =>
+    String(item).toLowerCase() === String(value).toLowerCase()
+  ) === index);
+  fill(ui.gcodeToolMaterialOptions, toolMaterials);
+  if (ui.gcodeToolMaterialInput) {
+    ui.gcodeToolMaterialInput.placeholder = `${t("Milling")}: ${gcode?.defaultMillingToolMaterial || "Carbide"}; ${t("drills")}: ${gcode?.defaultDrillToolMaterial || "HSS"}`;
+  }
+}
+
+function fillDatalistItems(listElement, items, valueKey = "label") {
+  if (!listElement) return;
+  listElement.innerHTML = "";
+  for (const item of items || []) {
+    const option = document.createElement("option");
+    option.value = item?.[valueKey] || item?.id || String(item || "");
+    listElement.appendChild(option);
+  }
+}
+
+function fillMaterialGroupSelect(items) {
+  const select = ui.gcodeMaterialFamilyInput;
+  if (!select) return;
+  const current = String(select.value || "").trim().toLowerCase();
+  select.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = t("Choose material group");
+  select.appendChild(placeholder);
+  let selectedValue = "";
+  for (const item of items || []) {
+    const option = document.createElement("option");
+    option.value = item?.id || item?.label || "";
+    option.textContent = t(item?.label || item?.id || "");
+    select.appendChild(option);
+    const identities = [item?.id, item?.label, ...(item?.aliases || [])]
+      .map((value) => String(value || "").trim().toLowerCase());
+    if (current && identities.includes(current)) selectedValue = option.value;
+  }
+  select.value = selectedValue;
+}
+
+async function loadGcodeMaterialOptions() {
+  if (typeof api.gcodeMaterialOptions !== "function") return;
+  const family = ui.gcodeMaterialFamilyInput?.value || "";
+  const result = await api.gcodeMaterialOptions({ family, query: "" }).catch(() => null);
+  if (!result?.ok) return;
+  state.gcodeMaterialGroups = result.groups || [];
+  fillMaterialGroupSelect(result.groups);
+  fillDatalistItems(ui.gcodeMaterialGradeOptions, result.grades);
+}
+
+function applyGcodeLocalDefaults(gcode, force = false) {
+  const set = (element, value) => {
+    if (element && (force || !String(element.value || "").trim())) element.value = value;
+  };
+  set(ui.gcodeMachineMaxRpm, gcode?.machineMaxRpm || 10000);
+  set(ui.gcodeAggressiveness, gcode?.defaultAggressiveness || "balanced");
+  set(ui.gcodeAePercent, gcode?.defaultAePercent || 10);
+  set(ui.gcodeCoolingMode, gcode?.defaultCoolingMode || "air");
+  set(ui.gcodeContactMode, gcode?.defaultContactMode || "side");
+  set(ui.gcodeFluteCount, gcode?.defaultFluteCount || 2);
+  set(ui.gcodeOptimizedSuffix, gcode?.optimizedSuffix || "_optimized");
+}
+
+function setGcodeMethod(method) {
+  const next = method === "local" ? "local" : "ai";
+  state.gcodeMethod = next;
+  const local = next === "local";
+  ui.gcodeMethodAiBtn?.classList.toggle("active", !local);
+  ui.gcodeMethodLocalBtn?.classList.toggle("active", local);
+  ui.gcodeMethodAiBtn?.setAttribute("aria-selected", String(!local));
+  ui.gcodeMethodLocalBtn?.setAttribute("aria-selected", String(local));
+  ui.gcodeAiInputs?.classList.toggle("hidden", local);
+  ui.gcodeLocalInputs?.classList.toggle("hidden", !local);
+  ui.gcodeLocalActions?.classList.toggle("hidden", !local || !state.gcodeLocalSessionId);
+  if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = "";
+  if (local) {
+    applyGcodeLocalDefaults(state.settings?.gcode);
+    loadGcodeMaterialOptions().catch(() => {});
+    renderGcodeLocalProposal(state.gcodeLocalProposal);
+  } else if (ui.gcodeResults) {
+    ui.gcodeResults.innerHTML = "";
+  }
+}
+
+function optionalNumber(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function collectGcodeToolOverrides() {
+  const overrides = {};
+  for (const card of ui.gcodeResults?.querySelectorAll("[data-gcode-tool-id]") || []) {
+    const toolId = card.dataset.gcodeToolId;
+    const fields = {};
+    for (const input of card.querySelectorAll("[data-gcode-tool-field]")) {
+      const key = input.dataset.gcodeToolField;
+      fields[key] = input.dataset.valueType === "number" ? optionalNumber(input.value) : input.value;
+    }
+    overrides[toolId] = fields;
+  }
+  return overrides;
+}
+
+function collectGcodeLocalInput() {
+  return {
+    materialFamily: ui.gcodeMaterialFamilyInput?.value || "",
+    materialGrade: ui.gcodeMaterialGradeInput?.value || "",
+    hardnessValue: optionalNumber(ui.gcodeHardnessInput?.value),
+    hardnessScale: ui.gcodeHardnessScale?.value || "HRC",
+    machineMaxRpm: optionalNumber(ui.gcodeMachineMaxRpm?.value),
+    machineMaxFeedMmMin: state.settings?.gcode?.machineMaxFeedMmMin || 10000,
+    aggressiveness: ui.gcodeAggressiveness?.value || "balanced",
+    aePercent: optionalNumber(ui.gcodeAePercent?.value),
+    coolingMode: ui.gcodeCoolingMode?.value || "air",
+    contactMode: ui.gcodeContactMode?.value || "side",
+    fluteCount: optionalNumber(ui.gcodeFluteCount?.value),
+    toolOverrides: collectGcodeToolOverrides(),
+  };
+}
+
+function collectGcodeSelections() {
+  const selections = [];
+  for (const row of ui.gcodeResults?.querySelectorAll("[data-gcode-change-id]") || []) {
+    selections.push({
+      id: row.dataset.gcodeChangeId,
+      accepted: row.querySelector("[data-gcode-change-accepted]")?.checked === true,
+      value: optionalNumber(row.querySelector("[data-gcode-change-value]")?.value),
+    });
+  }
+  return selections;
+}
+
+function formatGcodeDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds || 0)));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainder = total % 60;
+  return hours ? `${hours} h ${minutes} min` : `${minutes} min ${remainder} s`;
+}
+
+function gcodeToolField(label, field, value, options = {}) {
+  const type = options.type || "number";
+  const hint = options.hint
+    ? `<small class="gcode-field-hint ${escapeHtml(options.hintTone || "")}">${escapeHtml(options.hint)}</small>`
+    : "";
+  if (type === "select") {
+    const choices = (options.choices || []).map(([choiceValue, choiceLabel]) =>
+      `<option value="${escapeHtml(choiceValue)}"${String(value) === choiceValue ? " selected" : ""}>${escapeHtml(t(choiceLabel))}</option>`
+    ).join("");
+    return `<label><span>${escapeHtml(t(label))}</span>${hint}<select data-gcode-tool-field="${escapeHtml(field)}">${choices}</select></label>`;
+  }
+  const numeric = type === "number";
+  const attrs = numeric
+    ? `type="number" data-value-type="number" step="${escapeHtml(String(options.step || "0.1"))}"${options.min !== undefined ? ` min="${escapeHtml(String(options.min))}"` : ""}`
+    : "type=\"text\" spellcheck=\"false\"";
+  return `<label><span>${escapeHtml(t(label))}</span>${hint}<input ${attrs} data-gcode-tool-field="${escapeHtml(field)}" value="${escapeHtml(value ?? "")}"></label>`;
+}
+
+function gcodeAxialDepthHint(controls) {
+  if (controls.apSource === "operator") return { text: t("Operator value"), tone: "operator" };
+  const evidence = Number.isInteger(controls.apEvidenceCount)
+    ? ` - ${controls.apEvidenceCount} ${t("samples")}` : "";
+  if (controls.apSource === "cutting_z_levels") {
+    const confidence = controls.apConfidence === "high"
+      ? t("High confidence")
+      : (controls.apConfidence === "medium" ? t("Medium confidence") : t("Low confidence - verify"));
+    return {
+      text: `${t("MPF Z-level estimate")} - ${confidence}${evidence}`,
+      tone: controls.apConfidence || "low",
+    };
+  }
+  if (controls.apSource === "cutting_entry_motion") {
+    return {
+      text: `${t("MPF entry-motion estimate")} - ${t("Low confidence - verify")}${evidence}`,
+      tone: "low",
+    };
+  }
+  return null;
+}
+
+function setGcodeLocalControlsDirty(dirty) {
+  state.gcodeLocalControlsDirty = dirty === true;
+  if (ui.gcodeLocalUpdateEstimateBtn) {
+    ui.gcodeLocalUpdateEstimateBtn.disabled = state.gcodeAnalyzeInFlight || state.gcodeLocalControlsDirty;
+  }
+  if (ui.gcodeLocalCreateCopyBtn) {
+    ui.gcodeLocalCreateCopyBtn.disabled = state.gcodeAnalyzeInFlight
+      || state.gcodeLocalControlsDirty || !state.gcodeLocalProposal?.canWrite;
+  }
+}
+
+function markGcodeLocalControlsDirty() {
+  if (!state.gcodeLocalSessionId || state.gcodeLocalControlsDirty) return;
+  setGcodeLocalControlsDirty(true);
+  if (ui.gcodeAnalyzeState) {
+    ui.gcodeAnalyzeState.textContent = t("Inputs changed. Recalculate before creating the copy.");
+  }
+}
+
+function renderGcodeLocalProposal(proposal) {
+  if (!ui.gcodeResults) return;
+  ui.gcodeResults.innerHTML = "";
+  if (!proposal) return;
+  const time = proposal.timeEstimate || {};
+  const percent = time.percentChange === null || time.percentChange === undefined
+    ? "-" : `${time.percentChange > 0 ? "+" : ""}${time.percentChange}%`;
+  const summary = document.createElement("div");
+  summary.className = "gcode-local-summary";
+  summary.innerHTML = `
+    <div><span>${escapeHtml(t("Estimated time"))}</span><b>${escapeHtml(formatGcodeDuration(time.oldSeconds))} -> ${escapeHtml(formatGcodeDuration(time.newSeconds))}</b></div>
+    <div><span>${escapeHtml(t("Change"))}</span><b>${escapeHtml(percent)}</b></div>
+    <div><span>${escapeHtml(t("Accepted edits"))}</span><b>${escapeHtml(String(proposal.acceptedChangeCount || 0))}</b></div>`;
+  ui.gcodeResults.appendChild(summary);
+
+  for (const tool of proposal.tools || []) {
+    const card = document.createElement("section");
+    card.className = `gcode-tool-card gcode-local-tool status-${String(tool.status || "unknown").replace(/[^a-z_]/g, "")}`;
+    card.dataset.gcodeToolId = tool.id;
+    const controls = tool.controls || {};
+    const target = tool.recommendation?.levels?.target || null;
+    const currentProgram = [];
+    if (Number(controls.currentRpm) > 0) currentProgram.push(`${controls.currentRpm} RPM`);
+    if (Number(controls.currentFeed) > 0) currentProgram.push(`${controls.currentFeed} mm/min`);
+    const fields = [
+      gcodeToolField("Tool material", "toolMaterial", controls.toolMaterial || "", { type: "text" }),
+      gcodeToolField("Diameter (mm)", "diameterMm", controls.diameterMm, { step: 0.1, min: 0.1 }),
+    ];
+    if (tool.process !== "tapping") {
+      fields.push(gcodeToolField("Flute / edge count", "fluteCount", controls.fluteCount, { step: 1, min: 1 }));
+    }
+    if (tool.process === "milling") {
+      const apHint = gcodeAxialDepthHint(controls);
+      fields.push(gcodeToolField("Axial depth ap (mm)", "apMm", controls.apMm, {
+        step: 0.001,
+        min: 0.001,
+        hint: apHint?.text,
+        hintTone: apHint?.tone,
+      }));
+      fields.push(gcodeToolField("Radial engagement ae (%)", "aePercent", controls.aePercent, { step: 0.5, min: 0.1 }));
+      if (["chamfer", "engraver_vbit"].includes(tool.toolType)) {
+        fields.push(gcodeToolField("Feature depth (mm)", "featureDepthMm", controls.featureDepthMm, { step: 0.05, min: 0.01 }));
+      }
+    } else if (tool.process === "drilling") {
+      fields.push(gcodeToolField("Hole depth (mm)", "holeDepthMm", controls.holeDepthMm, { step: 0.1, min: 0.1 }));
+    } else if (tool.process === "tapping") {
+      fields.push(gcodeToolField("Thread depth (mm)", "threadDepthMm", controls.threadDepthMm, { step: 0.1, min: 0.1 }));
+      fields.push(`<div class="gcode-readonly-field"><span>${escapeHtml(t("Detected pitch (mm)"))}</span><b>${escapeHtml(controls.pitchMm ?? "-")}</b></div>`);
+      fields.push(gcodeToolField("Operator-confirmed pitch (mm)", "operatorConfirmedPitchMm", controls.operatorConfirmedPitchMm, { step: 0.01, min: 0.01 }));
+      fields.push(gcodeToolField("Tap style", "tapStyle", controls.tapStyle, { type: "select", choices: [
+        ["unknown", "Select"], ["cut", "Cut tap"], ["form", "Form tap"],
+      ] }));
+      fields.push(gcodeToolField("Hole type", "holeKind", controls.holeKind, { type: "select", choices: [
+        ["unknown", "Select"], ["blind", "Blind"], ["through", "Through"],
+      ] }));
+      fields.push(gcodeToolField("Pre-drill diameter (mm)", "preDrillDiameterMm", controls.preDrillDiameterMm, { step: 0.05, min: 0.1 }));
+    }
+    const missingLabels = {
+      diameterMm: "Diameter (mm)",
+      fluteCount: "Flute / edge count",
+      apMm: "Axial depth ap",
+      aePercent: "Radial engagement ae",
+      featureDepthMm: "Feature depth (mm)",
+      holeDepthMm: "Hole depth (mm)",
+      threadDepthMm: "Thread depth",
+      supportedToolType: "Supported tool type",
+      "tool.style": "Tap style and hole type",
+      "thread.kind": "Tap style and hole type",
+      "thread.pitch_mm": "Thread pitch",
+    };
+    const missing = (tool.missingInputs || []).map((item) => t(missingLabels[item] || item)).join(", ");
+    const warnings = (tool.warnings || []).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("");
+    card.innerHTML = `
+      <div class="gcode-local-tool-head">
+        <div><h3>${escapeHtml(tool.label)}</h3><span>${escapeHtml(tool.description || tool.toolType || "")}</span></div>
+        <strong><span>${escapeHtml(t(tool.process))}</span> / <span>${escapeHtml(t(tool.status))}</span></strong>
+      </div>
+      <div class="gcode-tool-controls">${fields.join("")}</div>
+      ${missing ? `<div class="gcode-input-warning">${escapeHtml(t("Required"))}: ${escapeHtml(missing)}</div>` : ""}
+      ${currentProgram.length ? `<div class="gcode-target-line"><span>${escapeHtml(t("Current program"))}</span><b>${escapeHtml(currentProgram.join(" / "))}</b></div>` : ""}
+      ${target ? `<div class="gcode-target-line"><span>${escapeHtml(t("Calculated target"))}</span><b>${escapeHtml(String(target.rpm))} RPM / ${escapeHtml(String(target.feed_mm_min))} mm/min</b></div>` : ""}
+      ${warnings ? `<ul class="gcode-warning-list">${warnings}</ul>` : ""}
+      <div class="gcode-change-list"></div>`;
+    const changeList = card.querySelector(".gcode-change-list");
+    for (const group of tool.changeGroups || []) {
+      const row = document.createElement("label");
+      row.className = "gcode-change-row";
+      row.dataset.gcodeChangeId = group.id;
+      const unit = group.programmedUnit || (group.kind.includes("rpm") ? "RPM" : "mm/min");
+      const sync = group.kind === "tap_rpm" && group.synchronizedFeedMmMin
+        ? ` / ${group.synchronizedFeedMmMin} mm/min` : "";
+      row.innerHTML = `
+        <input type="checkbox" data-gcode-change-accepted${group.accepted ? " checked" : ""}${group.editable ? "" : " disabled"}>
+        <span class="gcode-change-kind">${escapeHtml(t(group.classification || group.kind))}</span>
+        <span class="gcode-change-current">${escapeHtml((group.currentValues || []).join(", "))} -></span>
+        <input type="number" data-gcode-change-value value="${escapeHtml(String(group.proposedValue))}" step="${escapeHtml(String(group.step))}" min="${escapeHtml(String(group.minimum))}" max="${escapeHtml(String(group.maximum))}"${group.editable ? "" : " disabled"}>
+        <span>${escapeHtml(unit + sync)}</span>`;
+      changeList.appendChild(row);
+    }
+    for (const input of card.querySelectorAll("[data-gcode-tool-field]")) {
+      input.addEventListener("input", markGcodeLocalControlsDirty);
+      input.addEventListener("change", markGcodeLocalControlsDirty);
+    }
+    ui.gcodeResults.appendChild(card);
+  }
+  ui.gcodeLocalActions?.classList.remove("hidden");
+  setGcodeLocalControlsDirty(state.gcodeLocalControlsDirty);
+}
+
+async function openGcodeContainingFolder(file) {
+  if (!file?.path || typeof api.gcodeOpenContainingFolder !== "function") return;
+  hideRecentDocContextMenu();
+  const result = await api.gcodeOpenContainingFolder(file.path).catch((error) => ({
+    ok: false,
+    error: error.message,
+  }));
+  if (!result?.ok) log("Could not open G-code file location.", result || {});
+}
+
+function showGcodeContextMenu(event, file) {
+  event.preventDefault();
+  event.stopPropagation();
+  hideRecentDocContextMenu();
+  const menu = document.createElement("div");
+  menu.className = "recent-docs-context-menu";
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
+  const openFolder = document.createElement("button");
+  openFolder.type = "button";
+  openFolder.textContent = t("Open file location");
+  openFolder.addEventListener("click", (clickEvent) => {
+    clickEvent.stopPropagation();
+    openGcodeContainingFolder(file);
+  });
+  menu.appendChild(openFolder);
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  const pad = 8;
+  menu.style.left = `${Math.max(pad, Math.min(event.clientX, window.innerWidth - rect.width - pad))}px`;
+  menu.style.top = `${Math.max(pad, Math.min(event.clientY, window.innerHeight - rect.height - pad))}px`;
+  recentDocsState.contextMenu = menu;
+  recentDocsState.contextEntry = file;
 }
 
 function renderGcodeFileList() {
@@ -2103,6 +2827,7 @@ function renderGcodeFileList() {
       </div>`;
     const select = () => selectGcodeFile(file);
     row.addEventListener("click", select);
+    row.addEventListener("contextmenu", (event) => showGcodeContextMenu(event, file));
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); }
     });
@@ -2121,6 +2846,9 @@ function applyGcodeListVisibility() {
 
 function selectGcodeFile(file) {
   state.gcodeSelectedPath = file.path;
+  state.gcodeLocalSessionId = "";
+  state.gcodeLocalProposal = null;
+  state.gcodeLocalControlsDirty = false;
   state.gcodeListCollapsed = true;
   if (ui.gcodeAnalyzePanel) ui.gcodeAnalyzePanel.classList.remove("hidden");
   if (ui.gcodeSelectedFile) {
@@ -2129,6 +2857,7 @@ function selectGcodeFile(file) {
   }
   if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = "";
   if (ui.gcodeResults) ui.gcodeResults.innerHTML = "";
+  ui.gcodeLocalActions?.classList.add("hidden");
   renderGcodeFileList();
   applyGcodeListVisibility();
 }
@@ -2147,6 +2876,9 @@ function renderGcodeResults(analysis, promptPath) {
     card.innerHTML = `
       <div class="gcode-tool-title">${escapeHtml(tool.label)}${tool.diameterMm ? ` <span class="muted">~D${escapeHtml(String(tool.diameterMm))}</span>` : ""}</div>
       <div class="gcode-tool-grid">
+        <span>Operation</span><b>${escapeHtml(tool.toolKind === "drill" ? "Drilling / tapping" : "Milling")}</b>
+        <span>Tool material</span><b>${escapeHtml(tool.toolMaterial || "-")}</b>
+        <span>Header</span><b>${escapeHtml(tool.description || "-")}</b>
         <span>RPM</span><b>${escapeHtml((tool.rpms || []).join(", ") || "-")}</b>
         <span>Feed</span><b>${escapeHtml(feeds)}</b>
         <span>Plunge F</span><b>${escapeHtml(plunge)}</b>
@@ -2237,7 +2969,7 @@ async function runGcodeAnalyze() {
     const result = await api.gcodeAnalyze({
       mpfPath: state.gcodeSelectedPath,
       material: ui.gcodeMaterialInput?.value || "",
-      toolType: ui.gcodeToolTypeInput?.value || "",
+      toolMaterial: ui.gcodeToolMaterialInput?.value || "",
     });
     if (!result?.ok) {
       if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = `${t("Analyze failed:")} ${result?.error || "unknown error"}`;
@@ -2248,18 +2980,137 @@ async function runGcodeAnalyze() {
       ui.gcodeAnalyzeState.textContent = `${toolCount} ${t("tool(s) found.")} ${t("Give the saved prompt file to an AI for recommendations.")}`;
     }
     renderGcodeResults(result.analysis, result.promptPath);
-    // Backend remembered the material/tooltype - refresh dropdowns + settings.
+    // Backend remembered the two AI inputs; refresh their lists without
+    // touching the local proposal controls.
     if (result.gcode) {
       if (state.settings) state.settings.gcode = result.gcode;
       fillGcodeDatalists(result.gcode);
       if (ui.settingsGcodeMaterials) ui.settingsGcodeMaterials.value = (result.gcode.materials || []).join("\n");
-      if (ui.settingsGcodeToolTypes) ui.settingsGcodeToolTypes.value = (result.gcode.toolTypes || []).join("\n");
+      if (ui.settingsGcodeToolMaterials) ui.settingsGcodeToolMaterials.value = (result.gcode.toolMaterials || []).join("\n");
+      if (ui.settingsGcodeDefaultMillingToolMaterial) {
+        ui.settingsGcodeDefaultMillingToolMaterial.value = result.gcode.defaultMillingToolMaterial || "Carbide";
+      }
+      if (ui.settingsGcodeDefaultDrillToolMaterial) {
+        ui.settingsGcodeDefaultDrillToolMaterial.value = result.gcode.defaultDrillToolMaterial || "HSS";
+      }
     }
     refreshGcodeHistory().catch(() => {});
     log(`G-code check saved: ${result.promptPath}`);
   } finally {
     state.gcodeAnalyzeInFlight = false;
     if (ui.gcodeAnalyzeBtn) ui.gcodeAnalyzeBtn.disabled = false;
+  }
+}
+
+function setGcodeLocalBusy(busy) {
+  state.gcodeAnalyzeInFlight = busy;
+  for (const button of [
+    ui.gcodeLocalAnalyzeBtn,
+    ui.gcodeLocalRecalculateBtn,
+    ui.gcodeLocalUpdateEstimateBtn,
+    ui.gcodeLocalCreateCopyBtn,
+  ]) {
+    if (!button) continue;
+    const staleEstimate = state.gcodeLocalControlsDirty
+      && [ui.gcodeLocalUpdateEstimateBtn, ui.gcodeLocalCreateCopyBtn].includes(button);
+    button.disabled = busy || staleEstimate
+      || (button === ui.gcodeLocalCreateCopyBtn && !state.gcodeLocalProposal?.canWrite);
+  }
+}
+
+async function runGcodeLocalAnalysis(recalculate = false) {
+  if (state.gcodeAnalyzeInFlight) return;
+  if (!state.gcodeSelectedPath) {
+    if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = t("Select a .MPF file from the list first.");
+    return;
+  }
+  if (!(ui.gcodeMaterialFamilyInput?.value || "").trim()) {
+    if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = t("Choose a material group.");
+    ui.gcodeMaterialFamilyInput?.focus();
+    return;
+  }
+  setGcodeLocalBusy(true);
+  if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = t("Calculating local proposal...");
+  try {
+    const input = collectGcodeLocalInput();
+    const result = recalculate && state.gcodeLocalSessionId
+      ? await api.gcodeLocalRecalculate({ sessionId: state.gcodeLocalSessionId, input })
+      : await api.gcodeLocalAnalyze({ mpfPath: state.gcodeSelectedPath, input });
+    if (!result?.ok) {
+      if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = `${t("Analyze failed:")} ${result?.error || "unknown error"}`;
+      return;
+    }
+    state.gcodeLocalSessionId = result.sessionId;
+    state.gcodeLocalProposal = result.proposal;
+    state.gcodeLocalControlsDirty = false;
+    renderGcodeLocalProposal(result.proposal);
+    const needsInput = (result.proposal?.tools || []).filter((tool) =>
+      ["needs_input", "needs_confirmation"].includes(tool.status)
+    ).length;
+    if (ui.gcodeAnalyzeState) {
+      ui.gcodeAnalyzeState.textContent = needsInput
+        ? `${needsInput} ${t("tool(s) need operator input.")}`
+        : `${result.proposal?.acceptedChangeCount || 0} ${t("accepted change group(s).")}`;
+    }
+  } catch (error) {
+    if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = `${t("Analyze failed:")} ${error.message}`;
+  } finally {
+    setGcodeLocalBusy(false);
+  }
+}
+
+async function updateGcodeLocalEstimate() {
+  if (!state.gcodeLocalSessionId || state.gcodeAnalyzeInFlight) return;
+  if (state.gcodeLocalControlsDirty) {
+    if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = t("Inputs changed. Recalculate before creating the copy.");
+    return;
+  }
+  setGcodeLocalBusy(true);
+  try {
+    const result = await api.gcodeLocalRecalculate({
+      sessionId: state.gcodeLocalSessionId,
+      selections: collectGcodeSelections(),
+    });
+    if (!result?.ok) {
+      if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = `${t("Update failed:")} ${result?.error || "unknown error"}`;
+      return;
+    }
+    state.gcodeLocalProposal = result.proposal;
+    renderGcodeLocalProposal(result.proposal);
+    if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = t("Estimate updated.");
+  } finally {
+    setGcodeLocalBusy(false);
+  }
+}
+
+async function createGcodeOptimizedCopy() {
+  if (!state.gcodeLocalSessionId || state.gcodeAnalyzeInFlight) return;
+  if (state.gcodeLocalControlsDirty) {
+    if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = t("Inputs changed. Recalculate before creating the copy.");
+    return;
+  }
+  setGcodeLocalBusy(true);
+  if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = t("Verifying proposed changes...");
+  try {
+    const result = await api.gcodeLocalCreateCopy({
+      sessionId: state.gcodeLocalSessionId,
+      selections: collectGcodeSelections(),
+      suffix: ui.gcodeOptimizedSuffix?.value || "_optimized",
+    });
+    if (!result?.ok) {
+      if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = `${t("Copy failed:")} ${result?.error || "unknown error"}`;
+      return;
+    }
+    if (result.canceled) {
+      if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = t("Copy canceled.");
+      return;
+    }
+    if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = `${t("Optimized copy created:")} ${result.path}`;
+    log(`Optimized G-code copy created: ${result.path}`, { auditPath: result.auditPath, sha256: result.sha256 });
+  } catch (error) {
+    if (ui.gcodeAnalyzeState) ui.gcodeAnalyzeState.textContent = `${t("Copy failed:")} ${error.message}`;
+  } finally {
+    setGcodeLocalBusy(false);
   }
 }
 
@@ -2294,8 +3145,20 @@ function renderSettings(settings) {
   if (ui.settingsMacroDefaultMaterial) ui.settingsMacroDefaultMaterial.value = settings.macros?.defaultMaterial || "MATERIAL";
   if (ui.settingsGcodeSearchRoot) ui.settingsGcodeSearchRoot.value = settings.gcode?.searchRoot || "C:\\CAM";
   if (ui.settingsGcodeMaterials) ui.settingsGcodeMaterials.value = (settings.gcode?.materials || []).join("\n");
-  if (ui.settingsGcodeToolTypes) ui.settingsGcodeToolTypes.value = (settings.gcode?.toolTypes || []).join("\n");
+  if (ui.settingsGcodeToolMaterials) ui.settingsGcodeToolMaterials.value = (settings.gcode?.toolMaterials || []).join("\n");
+  if (ui.settingsGcodeDefaultMillingToolMaterial) ui.settingsGcodeDefaultMillingToolMaterial.value = settings.gcode?.defaultMillingToolMaterial || "Carbide";
+  if (ui.settingsGcodeDefaultDrillToolMaterial) ui.settingsGcodeDefaultDrillToolMaterial.value = settings.gcode?.defaultDrillToolMaterial || "HSS";
+  if (ui.settingsGcodeDefaultTapToolMaterial) ui.settingsGcodeDefaultTapToolMaterial.value = settings.gcode?.defaultTapToolMaterial || "HSS";
+  if (ui.settingsGcodeMachineMaxRpm) ui.settingsGcodeMachineMaxRpm.value = settings.gcode?.machineMaxRpm || 10000;
+  if (ui.settingsGcodeMachineMaxFeed) ui.settingsGcodeMachineMaxFeed.value = settings.gcode?.machineMaxFeedMmMin || 10000;
+  if (ui.settingsGcodeAggressiveness) ui.settingsGcodeAggressiveness.value = settings.gcode?.defaultAggressiveness || "balanced";
+  if (ui.settingsGcodeAePercent) ui.settingsGcodeAePercent.value = settings.gcode?.defaultAePercent || 10;
+  if (ui.settingsGcodeCoolingMode) ui.settingsGcodeCoolingMode.value = settings.gcode?.defaultCoolingMode || "air";
+  if (ui.settingsGcodeContactMode) ui.settingsGcodeContactMode.value = settings.gcode?.defaultContactMode || "side";
+  if (ui.settingsGcodeFluteCount) ui.settingsGcodeFluteCount.value = settings.gcode?.defaultFluteCount || 2;
+  if (ui.settingsGcodeOptimizedSuffix) ui.settingsGcodeOptimizedSuffix.value = settings.gcode?.optimizedSuffix || "_optimized";
   fillGcodeDatalists(settings.gcode);
+  applyGcodeLocalDefaults(settings.gcode, true);
   state.solidCamSettings = settings.solidCam || { selectedDllPath: "", selectedTitle: "", selectedClsid: "" };
   renderCamSelectionState();
   renderCamAddinsList(state.solidCamAddins || []);
@@ -2349,8 +3212,19 @@ function readSettingsForm() {
       searchRoot: (ui.settingsGcodeSearchRoot?.value || "C:\\CAM").trim(),
       materials: (ui.settingsGcodeMaterials?.value || "")
         .split(/\r?\n|;/).map((item) => item.trim()).filter(Boolean),
-      toolTypes: (ui.settingsGcodeToolTypes?.value || "")
+      toolMaterials: (ui.settingsGcodeToolMaterials?.value || "")
         .split(/\r?\n|;/).map((item) => item.trim()).filter(Boolean),
+      defaultMillingToolMaterial: (ui.settingsGcodeDefaultMillingToolMaterial?.value || "Carbide").trim(),
+      defaultDrillToolMaterial: (ui.settingsGcodeDefaultDrillToolMaterial?.value || "HSS").trim(),
+      defaultTapToolMaterial: (ui.settingsGcodeDefaultTapToolMaterial?.value || "HSS").trim(),
+      machineMaxRpm: Number(ui.settingsGcodeMachineMaxRpm?.value || 10000),
+      machineMaxFeedMmMin: Number(ui.settingsGcodeMachineMaxFeed?.value || 10000),
+      defaultAggressiveness: ui.settingsGcodeAggressiveness?.value || "balanced",
+      defaultAePercent: Number(ui.settingsGcodeAePercent?.value || 10),
+      defaultCoolingMode: ui.settingsGcodeCoolingMode?.value || "air",
+      defaultContactMode: ui.settingsGcodeContactMode?.value || "side",
+      defaultFluteCount: Number(ui.settingsGcodeFluteCount?.value || 2),
+      optimizedSuffix: (ui.settingsGcodeOptimizedSuffix?.value || "_optimized").trim(),
     },
   };
 }
@@ -2437,7 +3311,18 @@ function applySettingsGroupDefaults(group) {
     case "gcode":
       if (ui.settingsGcodeSearchRoot) ui.settingsGcodeSearchRoot.value = defaults.gcode?.searchRoot || "C:\\CAM";
       if (ui.settingsGcodeMaterials) ui.settingsGcodeMaterials.value = (defaults.gcode?.materials || []).join("\n");
-      if (ui.settingsGcodeToolTypes) ui.settingsGcodeToolTypes.value = (defaults.gcode?.toolTypes || []).join("\n");
+      if (ui.settingsGcodeToolMaterials) ui.settingsGcodeToolMaterials.value = (defaults.gcode?.toolMaterials || []).join("\n");
+      if (ui.settingsGcodeDefaultMillingToolMaterial) ui.settingsGcodeDefaultMillingToolMaterial.value = defaults.gcode?.defaultMillingToolMaterial || "Carbide";
+      if (ui.settingsGcodeDefaultDrillToolMaterial) ui.settingsGcodeDefaultDrillToolMaterial.value = defaults.gcode?.defaultDrillToolMaterial || "HSS";
+      if (ui.settingsGcodeDefaultTapToolMaterial) ui.settingsGcodeDefaultTapToolMaterial.value = defaults.gcode?.defaultTapToolMaterial || "HSS";
+      if (ui.settingsGcodeMachineMaxRpm) ui.settingsGcodeMachineMaxRpm.value = defaults.gcode?.machineMaxRpm || 10000;
+      if (ui.settingsGcodeMachineMaxFeed) ui.settingsGcodeMachineMaxFeed.value = defaults.gcode?.machineMaxFeedMmMin || 10000;
+      if (ui.settingsGcodeAggressiveness) ui.settingsGcodeAggressiveness.value = defaults.gcode?.defaultAggressiveness || "balanced";
+      if (ui.settingsGcodeAePercent) ui.settingsGcodeAePercent.value = defaults.gcode?.defaultAePercent || 10;
+      if (ui.settingsGcodeCoolingMode) ui.settingsGcodeCoolingMode.value = defaults.gcode?.defaultCoolingMode || "air";
+      if (ui.settingsGcodeContactMode) ui.settingsGcodeContactMode.value = defaults.gcode?.defaultContactMode || "side";
+      if (ui.settingsGcodeFluteCount) ui.settingsGcodeFluteCount.value = defaults.gcode?.defaultFluteCount || 2;
+      if (ui.settingsGcodeOptimizedSuffix) ui.settingsGcodeOptimizedSuffix.value = defaults.gcode?.optimizedSuffix || "_optimized";
       return true;
     default:
       return false;
@@ -2448,20 +3333,21 @@ function renderCamSelectionState() {
   if (!ui.camSelectionState) return;
   const cam = state.solidCamSettings || {};
   if (cam.selectedDllPath) {
-    ui.camSelectionState.textContent = `Selected: ${cam.selectedTitle || "(no title)"} → ${cam.selectedDllPath}`;
+    ui.camSelectionState.textContent = `${t("Selected:")} ${cam.selectedTitle || t("(no title)")} → ${cam.selectedDllPath}`;
     ui.camSelectionState.classList.remove("muted");
   } else {
-    ui.camSelectionState.textContent = "No SolidCAM add-in selected.";
+    ui.camSelectionState.textContent = t("No SolidCAM add-in selected.");
     ui.camSelectionState.classList.add("muted");
   }
 }
 
 function setSolidCamLoadStatus(text, statusClass = "unknown", title = "") {
   if (!ui.solidCamLoadStatus) return;
+  const localizedText = t(text);
   ui.solidCamLoadStatus.classList.remove("loaded", "not-loaded", "loading", "stuck", "crashed", "unknown");
   ui.solidCamLoadStatus.classList.add(statusClass);
-  ui.solidCamLoadStatus.textContent = text;
-  ui.solidCamLoadStatus.title = title || text;
+  ui.solidCamLoadStatus.textContent = localizedText;
+  ui.solidCamLoadStatus.title = title ? ta(title) : localizedText;
   state.solidCamLoaded = statusClass === "loaded" ? true : (statusClass === "not-loaded" ? false : null);
   if (ui.startCamBtn) ui.startCamBtn.classList.toggle("cam-glow-running", state.solidCamLoaded === true);
   if (ui.stopCamBtn) ui.stopCamBtn.classList.toggle("cam-glow-stopped", state.solidCamLoaded === false);
@@ -2524,7 +3410,7 @@ function renderCamAddinsList(addins) {
   if (!addins || !addins.length) {
     const empty = document.createElement("div");
     empty.className = "response-preview muted";
-    empty.textContent = "Click Search to enumerate SolidCAM add-ins registered with SOLIDWORKS.";
+    empty.textContent = t("Click Search to enumerate SolidCAM add-ins registered with SOLIDWORKS.");
     ui.camAddinsList.appendChild(empty);
     return;
   }
@@ -2672,7 +3558,36 @@ async function stopCamAddin() {
   }
 }
 
+function localizedSettingsAction(action) {
+  if (currentUiLanguage !== "hu") return `Settings ${action}.`;
+  const exact = {
+    loaded: "Settings loaded.",
+    saved: "Settings saved.",
+    imported: "Settings imported.",
+    "reset to defaults": "Settings reset to defaults.",
+  };
+  if (exact[action]) return t(exact[action]);
+  if (action.endsWith(" reset")) {
+    const group = action.slice(0, -" reset".length);
+    const groupLabels = {
+      language: "Language",
+      hotkeys: "Hotkeys",
+      activity: "SOLIDWORKS Activity",
+      erp: "ERP Worklog Export",
+      cam: "CAM Folder",
+      gcode: "G-code Checker",
+      "search-locations": "Search locations",
+      "project-locations": "Project locations",
+      macros: "Macro defaults",
+      solidcam: "SolidCAM",
+    };
+    return `${t("Settings group reset:")} ${t(groupLabels[group] || group)}.`;
+  }
+  return t("Settings saved.");
+}
+
 function renderSettingsState(result, action = "loaded") {
+  state.lastSettingsState = { result, action };
   const settingsPath = result?.path || state.settingsPath || "Documents\\Excelsis Helper\\settings.json";
   const macro = result?.macroSettings || result?.macroLanguage;
   const macroLine = macro
@@ -2681,26 +3596,27 @@ function renderSettingsState(result, action = "loaded") {
   const warningLine = macro?.warnings?.length
     ? `\nWarnings:\n${macro.warnings.join("\n")}`
     : "";
-  ui.settingsState.textContent = `Settings ${action}.\nSettings file: ${settingsPath}${macroLine}${warningLine}`;
+  ui.settingsState.textContent = `${localizedSettingsAction(action)}\n${t("Settings file:")} ${settingsPath}${macroLine}${warningLine}`;
   ui.settingsState.classList.toggle("muted", !warningLine);
 }
 
 function renderCacheStats(result) {
   if (!ui.settingsCacheState) return;
+  state.lastCacheStats = result;
   if (!result?.ok) {
-    ui.settingsCacheState.textContent = `Cache size check failed: ${result?.error || "unknown error"}`;
+    ui.settingsCacheState.textContent = `${t("Cache size check failed:")} ${result?.error || "unknown error"}`;
     ui.settingsCacheState.classList.remove("muted");
     return;
   }
   const doc = result.docSearch || {};
   const thumbs = result.recentThumbnails || {};
-  const updated = doc.updatedAt ? new Date(doc.updatedAt).toLocaleString() : "never";
+  const updated = doc.updatedAt ? new Date(doc.updatedAt).toLocaleString() : t("never");
   ui.settingsCacheState.textContent = [
-    `Total cache: ${result.formattedTotalBytes || "0 B"}`,
-    `Doc Search: ${doc.formattedBytes || "0 B"}; ${doc.entries || 0} indexed files; updated ${updated}`,
-    `Recent thumbnails: ${thumbs.formattedBytes || "0 B"}; ${thumbs.files || 0} files`,
-    `Background workers: ${result.workers?.active ?? 0}/${result.workers?.max ?? 3} active; ${result.workers?.queued ?? 0} queued`,
-    `Doc Search path: ${doc.root || ""}`,
+    `${t("Total cache:")} ${result.formattedTotalBytes || "0 B"}`,
+    `${t("Doc Search:")} ${doc.formattedBytes || "0 B"}; ${doc.entries || 0} ${t("indexed files; updated")} ${updated}`,
+    `${t("Recent thumbnails:")} ${thumbs.formattedBytes || "0 B"}; ${thumbs.files || 0} ${t("files")}`,
+    `${t("Background workers:")} ${result.workers?.active ?? 0}/${result.workers?.max ?? 3} ${t("active;")} ${result.workers?.queued ?? 0} ${t("queued")}`,
+    `${t("Doc Search path:")} ${doc.root || ""}`,
   ].join("\n");
   ui.settingsCacheState.classList.add("muted");
 }
@@ -2727,7 +3643,7 @@ async function loadSettings() {
     renderSettingsState(result, "loaded");
     refreshCacheStats().catch(() => {});
   } catch (error) {
-    ui.settingsState.textContent = `Settings load failed: ${error.message}`;
+    ui.settingsState.textContent = `${t("Settings load failed:")} ${error.message}`;
     ui.settingsState.classList.remove("muted");
   }
 }
@@ -2751,7 +3667,7 @@ async function saveSettings() {
       macroSettings: result.macroSettings || result.macroLanguage,
     });
   } catch (error) {
-    ui.settingsState.textContent = `Settings save failed: ${error.message}`;
+    ui.settingsState.textContent = `${t("Settings save failed:")} ${error.message}`;
     ui.settingsState.classList.remove("muted");
     log("Settings save failed.", { error: error.message });
   } finally {
@@ -2765,7 +3681,7 @@ async function importSettings() {
   try {
     const result = await api.importSettings();
     if (result?.canceled) {
-      ui.settingsState.textContent = "Settings import canceled.";
+      ui.settingsState.textContent = t("Settings import canceled.");
       ui.settingsState.classList.add("muted");
       return;
     }
@@ -2780,7 +3696,7 @@ async function importSettings() {
       backupPath: result.backupPath,
     });
   } catch (error) {
-    ui.settingsState.textContent = `Settings import failed: ${error.message}`;
+    ui.settingsState.textContent = `${t("Settings import failed:")} ${error.message}`;
     ui.settingsState.classList.remove("muted");
     log("Settings import failed.", { error: error.message });
   } finally {
@@ -2794,16 +3710,16 @@ async function exportSettings() {
   try {
     const result = await api.exportSettings();
     if (result?.canceled) {
-      ui.settingsState.textContent = "Settings export canceled.";
+      ui.settingsState.textContent = t("Settings export canceled.");
       ui.settingsState.classList.add("muted");
       return;
     }
     if (!result?.ok) throw new Error(result?.error || "Settings export failed.");
-    ui.settingsState.textContent = `Settings exported.\nFile: ${result.exportedTo}`;
+    ui.settingsState.textContent = `${t("Settings exported.")}\n${t("File:")} ${result.exportedTo}`;
     ui.settingsState.classList.add("muted");
     log("Settings exported.", { exportedTo: result.exportedTo });
   } catch (error) {
-    ui.settingsState.textContent = `Settings export failed: ${error.message}`;
+    ui.settingsState.textContent = `${t("Settings export failed:")} ${error.message}`;
     ui.settingsState.classList.remove("muted");
     log("Settings export failed.", { error: error.message });
   } finally {
@@ -2825,7 +3741,7 @@ async function resetSettingsGroup(group, button = null) {
     renderSettingsState(result, `${group} reset`);
     log("Settings group reset.", { group, settingsPath: result.path, hotkeys: result.settings?.hotkeys });
   } catch (error) {
-    ui.settingsState.textContent = `Settings group reset failed: ${error.message}`;
+    ui.settingsState.textContent = `${t("Settings group reset failed:")} ${error.message}`;
     ui.settingsState.classList.remove("muted");
     log("Settings group reset failed.", { group, error: error.message });
   } finally {
@@ -2850,7 +3766,7 @@ async function resetSettings() {
       macroSettings: result.macroSettings || result.macroLanguage,
     });
   } catch (error) {
-    ui.settingsState.textContent = `Settings reset failed: ${error.message}`;
+    ui.settingsState.textContent = `${t("Settings reset failed:")} ${error.message}`;
     ui.settingsState.classList.remove("muted");
     log("Settings reset failed.", { error: error.message });
   } finally {
@@ -2984,7 +3900,7 @@ if (ui.exportLastDayWorkLoggerBtn) {
 if (ui.setWorklogExportBtn) {
   ui.setWorklogExportBtn.addEventListener("click", async () => {
     if (typeof api.saveWorklogExportRules !== "function") return;
-    const rules = readWorklogExportRules();
+    const rules = readWorklogExportRules({ includeTransient: false });
     ui.setWorklogExportBtn.disabled = true;
     try {
       const result = await api.saveWorklogExportRules(rules);
@@ -3067,6 +3983,7 @@ if (ui.worklogExportForm) {
         return;
       }
       setWorklogExportDialogOpen(false);
+      if (!lastDay && result.autoExport) renderAutoExportStatus(result.autoExport);
       log(lastDay ? "Exported recovered last-day work logs." : "Exported Work Logger batch.", {
         path: result.path,
         entries: result.count,
@@ -3089,7 +4006,9 @@ if (ui.worklogExportForm) {
         ui.confirmWorklogExportBtn.disabled = false;
         ui.confirmWorklogExportBtn.textContent = originalLabel;
       }
-      updateWorklogExportControls();
+      if (ui.worklogExportDialog && !ui.worklogExportDialog.classList.contains("hidden")) {
+        updateWorklogExportControls();
+      }
     }
   });
 }
@@ -3189,6 +4108,22 @@ if (ui.gcodeChangeFileBtn) {
   });
 }
 if (ui.gcodeAnalyzeBtn) ui.gcodeAnalyzeBtn.addEventListener("click", () => runGcodeAnalyze().catch(() => {}));
+if (ui.gcodeMethodAiBtn) ui.gcodeMethodAiBtn.addEventListener("click", () => setGcodeMethod("ai"));
+if (ui.gcodeMethodLocalBtn) ui.gcodeMethodLocalBtn.addEventListener("click", () => setGcodeMethod("local"));
+if (ui.gcodeMaterialFamilyInput) {
+  ui.gcodeMaterialFamilyInput.addEventListener("change", () => {
+    if (ui.gcodeMaterialGradeInput) ui.gcodeMaterialGradeInput.value = "";
+    loadGcodeMaterialOptions().catch(() => {});
+  });
+}
+if (ui.gcodeLocalInputs) {
+  ui.gcodeLocalInputs.addEventListener("input", markGcodeLocalControlsDirty);
+  ui.gcodeLocalInputs.addEventListener("change", markGcodeLocalControlsDirty);
+}
+if (ui.gcodeLocalAnalyzeBtn) ui.gcodeLocalAnalyzeBtn.addEventListener("click", () => runGcodeLocalAnalysis(false).catch(() => {}));
+if (ui.gcodeLocalRecalculateBtn) ui.gcodeLocalRecalculateBtn.addEventListener("click", () => runGcodeLocalAnalysis(true).catch(() => {}));
+if (ui.gcodeLocalUpdateEstimateBtn) ui.gcodeLocalUpdateEstimateBtn.addEventListener("click", () => updateGcodeLocalEstimate().catch(() => {}));
+if (ui.gcodeLocalCreateCopyBtn) ui.gcodeLocalCreateCopyBtn.addEventListener("click", () => createGcodeOptimizedCopy().catch(() => {}));
 if (ui.gcodeOpenChecksFolderBtn) {
   ui.gcodeOpenChecksFolderBtn.addEventListener("click", async () => {
     const result = await api.gcodeOpenChecksFolder().catch(() => null);
@@ -3211,7 +4146,13 @@ ui.settingsGroupResetButtons.forEach((button) => {
 });
 if (ui.settingsUiLanguage) {
   // Live-preview the UI language as soon as it's changed (before Save).
-  ui.settingsUiLanguage.addEventListener("change", () => applyUiLanguage(ui.settingsUiLanguage.value));
+  ui.settingsUiLanguage.addEventListener("change", () => {
+    applyUiLanguage(ui.settingsUiLanguage.value);
+    if (state.lastSettingsState) {
+      renderSettingsState(state.lastSettingsState.result, state.lastSettingsState.action);
+    }
+    if (state.lastCacheStats) renderCacheStats(state.lastCacheStats);
+  });
 }
 
 if (ui.searchCamAddinsBtn) ui.searchCamAddinsBtn.addEventListener("click", searchCamAddins);

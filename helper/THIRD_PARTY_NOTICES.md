@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This file covers Excelsis Helper 1.3.3-public.1. Project-owned material is
+This file covers Excelsis Helper 1.3.9. Project-owned material is
 licensed under GPL-3.0-only in `LICENSE`. Components listed below remain under
 their respective licenses.
 
@@ -70,6 +70,18 @@ Their notices are in `licenses/electron-builder-MIT.txt` and
 license column reflects package-lock SPDX metadata; not every installed package
 directory contains a standalone license file. Complete applicable notices for
 known redistributed runtime components are preserved above and in `licenses/`.
+
+## Machining references
+
+The project-authored machining engine cites public manufacturer and material-
+producer pages for material taxonomy, dimensional formulas, and normalized
+factual starting ranges. Exact URLs, retrieval dates, source roles, and source-
+document hashes where available are recorded in `machining-engine/materials.cjs`,
+`drilling-data.cjs`, `tapping-data.cjs`, and `face-milling-solver.cjs`.
+
+No referenced PDF, catalog, logo, product image, source code, or interactive
+calculator is bundled. Manufacturer and trade names identify the factual source
+or tool/material family only and do not imply endorsement.
 
 ## Project Assets and Macros
 

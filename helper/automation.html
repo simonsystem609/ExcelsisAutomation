@@ -212,23 +212,107 @@
                 <button id="gcodeChangeFileBtn" class="hidden" type="button">Select different MPF</button>
               </div>
             </div>
-            <div class="settings-grid">
+            <div class="gcode-method-switch" role="tablist" aria-label="Analysis method">
+              <button id="gcodeMethodAiBtn" class="active" type="button" role="tab" aria-selected="true">AI prompt</button>
+              <button id="gcodeMethodLocalBtn" type="button" role="tab" aria-selected="false">Local method</button>
+            </div>
+            <div id="gcodeAiInputs" class="settings-grid gcode-method-panel">
               <label>
                 <span>Material</span>
                 <input id="gcodeMaterialInput" list="gcodeMaterialOptions" placeholder="e.g. 1.2312 steel / AlMgSi1" spellcheck="false" autocomplete="off">
                 <datalist id="gcodeMaterialOptions"></datalist>
               </label>
               <label>
-                <span>Tool type</span>
-                <input id="gcodeToolTypeInput" list="gcodeToolTypeOptions" placeholder="e.g. carbide endmill" spellcheck="false" autocomplete="off">
-                <datalist id="gcodeToolTypeOptions"></datalist>
+                <span>Tool material override (optional)</span>
+                <input id="gcodeToolMaterialInput" list="gcodeToolMaterialOptions" placeholder="Milling: Carbide; drills: HSS" title="Leave blank to use the configured milling, drill, and tap defaults" spellcheck="false" autocomplete="off">
+                <datalist id="gcodeToolMaterialOptions"></datalist>
               </label>
               <div class="full image-row inline-actions">
                 <button id="gcodeAnalyzeBtn" class="primary" type="button">Analyze + Create AI Prompt</button>
               </div>
             </div>
+            <div id="gcodeLocalInputs" class="settings-grid gcode-method-panel hidden">
+              <label>
+                <span>Material group</span>
+                <select id="gcodeMaterialFamilyInput">
+                  <option value="">Choose material group</option>
+                </select>
+              </label>
+              <label>
+                <span>Exact material / grade (optional)</span>
+                <input id="gcodeMaterialGradeInput" list="gcodeMaterialGradeOptions" placeholder="6061-T6" spellcheck="false" autocomplete="off">
+                <datalist id="gcodeMaterialGradeOptions"></datalist>
+              </label>
+              <label>
+                <span>Hardness (optional)</span>
+                <div class="gcode-inline-inputs">
+                  <input id="gcodeHardnessInput" type="number" min="0" step="1" inputmode="decimal">
+                  <select id="gcodeHardnessScale">
+                    <option value="HRC">HRC</option>
+                    <option value="HB">HB</option>
+                    <option value="HV">HV</option>
+                    <option value="HRB">HRB</option>
+                    <option value="ShoreD">Shore D</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </label>
+              <label>
+                <span>Machine maximum RPM</span>
+                <input id="gcodeMachineMaxRpm" type="number" min="100" max="200000" step="100" inputmode="numeric">
+              </label>
+              <label>
+                <span>Aggressiveness</span>
+                <select id="gcodeAggressiveness">
+                  <option value="conservative">Conservative</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="slightly_aggressive">Slightly aggressive</option>
+                </select>
+              </label>
+              <label>
+                <span>Radial engagement ae (%)</span>
+                <input id="gcodeAePercent" type="number" min="0.1" max="100" step="0.5" inputmode="decimal">
+              </label>
+              <label>
+                <span>Cooling</span>
+                <select id="gcodeCoolingMode">
+                  <option value="dry">Dry</option>
+                  <option value="air">Air</option>
+                  <option value="mist">Mist</option>
+                  <option value="air_plus_mql">Air + MQL</option>
+                  <option value="flood">Flood</option>
+                  <option value="through_tool">Through-tool</option>
+                </select>
+              </label>
+              <label>
+                <span>Contact mode</span>
+                <select id="gcodeContactMode">
+                  <option value="side">Side milling</option>
+                  <option value="floor_tip">Floor / tip</option>
+                  <option value="wall_side">Wall / side</option>
+                  <option value="mixed_3d">Mixed 3D</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </label>
+              <label>
+                <span>Default flute / edge count</span>
+                <input id="gcodeFluteCount" type="number" min="1" max="20" step="1" inputmode="numeric">
+              </label>
+              <div class="full image-row inline-actions">
+                <button id="gcodeLocalAnalyzeBtn" class="primary" type="button">Calculate local proposal</button>
+              </div>
+            </div>
             <div id="gcodeAnalyzeState" class="response-preview muted"></div>
             <div id="gcodeResults" class="gcode-results"></div>
+            <div id="gcodeLocalActions" class="gcode-local-actions hidden">
+              <label>
+                <span>Copy suffix</span>
+                <input id="gcodeOptimizedSuffix" spellcheck="false" autocomplete="off">
+              </label>
+              <button id="gcodeLocalRecalculateBtn" type="button">Recalculate</button>
+              <button id="gcodeLocalUpdateEstimateBtn" type="button">Update estimate</button>
+              <button id="gcodeLocalCreateCopyBtn" class="primary" type="button">Create optimized copy</button>
+            </div>
           </section>
 
           <section class="panel-section">
@@ -402,13 +486,74 @@
                 <span>MPF search root</span>
                 <input id="settingsGcodeSearchRoot" placeholder="C:\CAM" spellcheck="false">
               </label>
+              <label>
+                <span>Default milling tool material</span>
+                <input id="settingsGcodeDefaultMillingToolMaterial" placeholder="Carbide" spellcheck="false">
+              </label>
+              <label>
+                <span>Default drill tool material</span>
+                <input id="settingsGcodeDefaultDrillToolMaterial" placeholder="HSS" spellcheck="false">
+              </label>
+              <label>
+                <span>Default tap tool material</span>
+                <input id="settingsGcodeDefaultTapToolMaterial" placeholder="HSS" spellcheck="false">
+              </label>
+              <label>
+                <span>Machine maximum RPM</span>
+                <input id="settingsGcodeMachineMaxRpm" type="number" min="100" max="200000" step="100">
+              </label>
+              <label>
+                <span>Machine maximum feed (mm/min)</span>
+                <input id="settingsGcodeMachineMaxFeed" type="number" min="5" max="100000" step="5">
+              </label>
+              <label>
+                <span>Default aggressiveness</span>
+                <select id="settingsGcodeAggressiveness">
+                  <option value="conservative">Conservative</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="slightly_aggressive">Slightly aggressive</option>
+                </select>
+              </label>
+              <label>
+                <span>Default ae (%)</span>
+                <input id="settingsGcodeAePercent" type="number" min="0.1" max="100" step="0.5">
+              </label>
+              <label>
+                <span>Default cooling</span>
+                <select id="settingsGcodeCoolingMode">
+                  <option value="dry">Dry</option>
+                  <option value="air">Air</option>
+                  <option value="mist">Mist</option>
+                  <option value="air_plus_mql">Air + MQL</option>
+                  <option value="flood">Flood</option>
+                  <option value="through_tool">Through-tool</option>
+                </select>
+              </label>
+              <label>
+                <span>Default contact mode</span>
+                <select id="settingsGcodeContactMode">
+                  <option value="side">Side milling</option>
+                  <option value="floor_tip">Floor / tip</option>
+                  <option value="wall_side">Wall / side</option>
+                  <option value="mixed_3d">Mixed 3D</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </label>
+              <label>
+                <span>Default flute / edge count</span>
+                <input id="settingsGcodeFluteCount" type="number" min="1" max="20" step="1">
+              </label>
+              <label>
+                <span>Optimized copy suffix</span>
+                <input id="settingsGcodeOptimizedSuffix" placeholder="_optimized" spellcheck="false">
+              </label>
               <label class="full">
                 <span>Remembered materials (one per line)</span>
                 <textarea id="settingsGcodeMaterials" rows="3" spellcheck="false"></textarea>
               </label>
               <label class="full">
-                <span>Remembered tool types (one per line)</span>
-                <textarea id="settingsGcodeToolTypes" rows="3" spellcheck="false"></textarea>
+                <span>Remembered tool material overrides (one per line)</span>
+                <textarea id="settingsGcodeToolMaterials" rows="3" spellcheck="false"></textarea>
               </label>
             </div>
           </section>

@@ -34,17 +34,23 @@ install script; electron-builder fetches its checked runtime archive during
 packaging. The unrelated electron-winstaller lifecycle script is not required
 for this NSIS build and remains unapproved.
 
-Do not launch the application merely to inspect a package. The build creates:
+Do not launch the application merely to inspect a package. The build creates
+one universal, preset-free installer:
 
-- dist\Excelsis Helper-Setup-1.3.3-public.1.exe
-- dist\Excelsis Helper-Setup-1.3.3-public.1.exe.blockmap
+- dist\Excelsis Helper-Setup-1.3.9.exe
+- dist\Excelsis Helper-Setup-1.3.9.exe.blockmap
 - dist\win-unpacked\
+
+An optional `ExcelsisHelper-settings.json` beside the setup EXE uses the same
+schema as Settings > Import/Export. The installer stages it for first startup;
+without that sidecar, generic application defaults remain in effect. The
+sidecar is never embedded in the setup EXE.
 
 ## Non-launching verification
 
 ~~~powershell
-Get-FileHash -Algorithm SHA256 '.\dist\Excelsis Helper-Setup-1.3.3-public.1.exe'
-Get-AuthenticodeSignature '.\dist\Excelsis Helper-Setup-1.3.3-public.1.exe'
+Get-FileHash -Algorithm SHA256 '.\dist\Excelsis Helper-Setup-1.3.9.exe'
+Get-AuthenticodeSignature '.\dist\Excelsis Helper-Setup-1.3.9.exe'
 node -e "const a=require('@electron/asar'); const p=JSON.parse(a.extractFile('dist/win-unpacked/resources/app.asar','package.json')); console.log(p.version)"
 node tools\audit-packaged-runtime.cjs "dist\win-unpacked\Excelsis Helper.exe"
 ~~~

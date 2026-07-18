@@ -13,6 +13,16 @@ const {
   DEFAULT_MAX_PENDING_MS: UNSAVED_PROJECT_ACTIVITY_MAX_PENDING_MS,
   UnsavedWorkTracker,
 } = require("./worklogger-unsaved.cjs");
+const { applyProposalSelections, buildLocalProposal } = require("./machining-engine/local-analysis.cjs");
+const { listMaterialGrades, listMaterialGroups } = require("./machining-engine/materials.cjs");
+const {
+  decodeMpfBuffer,
+  normalizeOptimizedSuffix,
+  optimizedPathFor,
+  sha256Buffer,
+  structureSignature,
+  summarizeAcceptedEdits,
+} = require("./machining-engine/mpf-writer.cjs");
 
 // --- Rolling diagnostic activity logger + Explorer health watchdog (1.1.5) -
 // Temporary/diagnostic feature. Records what the app's background
@@ -230,6 +240,39 @@ function createManagedWorker(scriptPath, options = {}) {
 async function createManagedWorkerNow(scriptPath, options = {}) {
   const worker = await createManagedWorker(scriptPath, options);
   return worker;
+}
+
+async function runManagedWorkerRequest(scriptPath, workerData, timeoutMs) {
+  const worker = await createManagedWorkerNow(scriptPath, {
+    workerData,
+    resourceLimits: { maxOldGenerationSizeMb: 384 },
+  });
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback(value);
+    };
+    const timeout = setTimeout(() => {
+      worker.terminate().catch(() => {});
+      finish(reject, new Error("The G-code analysis worker timed out."));
+    }, timeoutMs);
+    worker.once("message", (message) => {
+      if (message?.ok) {
+        finish(resolve, message);
+      } else {
+        const error = new Error(String(message?.error || "The G-code analysis worker failed."));
+        if (message?.code) error.code = message.code;
+        finish(reject, error);
+      }
+    });
+    worker.once("error", (error) => finish(reject, error));
+    worker.once("exit", (code) => {
+      if (!settled) finish(reject, new Error(`The G-code analysis worker exited before returning a result (code ${code}).`));
+    });
+  });
 }
 
 function terminateBackgroundWorkers() {
@@ -3674,7 +3717,7 @@ async function loadSavedWorklogExportRules() {
 
 async function saveWorklogExportRules(rawRules = {}) {
   const catalog = await readErpWorklogWorkTypes();
-  const rules = sanitizeWorklogExportRules(rawRules, catalog);
+  const rules = persistentWorklogExportRules(sanitizeWorklogExportRules(rawRules, catalog));
   try {
     await fs.mkdir(automationWorkdirRoot(), { recursive: true });
     await fs.writeFile(worklogExportRulesPath(), `${JSON.stringify(rules, null, 2)}\n`, "utf8");
@@ -3920,6 +3963,21 @@ function sanitizeWorklogExportRules(raw = {}, catalog = null) {
   }
   const targetHoursMode = Boolean(raw.targetHoursMode);
   const targetHours = Math.max(0.5, Math.round(clampNumber(raw.targetHours, 8, 0.5, 24) * 2) / 2);
+  const excludedProjectKeys = Array.from(new Set(
+    (Array.isArray(raw.excludedProjectKeys) ? raw.excludedProjectKeys : [])
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean),
+  )).slice(0, 10000);
+  const projectMinuteOverrides = {};
+  if (raw.projectMinuteOverrides && typeof raw.projectMinuteOverrides === "object") {
+    const maxMinutes = splitByWorkType ? 48 * 60 : 24 * 60;
+    for (const [rawKey, rawMinutes] of Object.entries(raw.projectMinuteOverrides)) {
+      const key = String(rawKey || "").trim().toLowerCase();
+      const minutes = Number(rawMinutes);
+      if (!key || !Number.isFinite(minutes)) continue;
+      projectMinuteOverrides[key] = Math.max(1, Math.min(maxMinutes, Math.round(minutes)));
+    }
+  }
   return {
     cutoffMinutes,
     multiplier,
@@ -3931,7 +3989,18 @@ function sanitizeWorklogExportRules(raw = {}, catalog = null) {
     projectWorkTypes,
     targetHoursMode,
     targetHours,
+    excludedProjectKeys,
+    projectMinuteOverrides,
   };
+}
+
+function persistentWorklogExportRules(rules = {}) {
+  const {
+    excludedProjectKeys: _excludedProjectKeys,
+    projectMinuteOverrides: _projectMinuteOverrides,
+    ...persistent
+  } = rules || {};
+  return persistent;
 }
 
 function roundProjectActivityForExport(project, rules) {
@@ -3985,7 +4054,7 @@ function worklogProjectExportWorkTypes(project, rules) {
     ? rules.splitWorkTypes
     : [rules.defaultWorkType];
   if (!rules.perProjectWorkTypes) return globalTypes;
-  const key = worklogProjectExportKey(project);
+  const key = worklogProjectExportKey(project).toLowerCase();
   const projectTypes = rawProjectWorkTypeValues(rules.projectWorkTypes?.[key]);
   if (rules.splitByWorkType) {
     return [
@@ -4065,10 +4134,12 @@ function allocateTargetHoursMinutes(projects, rules) {
 // Map(projectKey -> { exportable, reason, originalMinutes, roundedMinutes, hours }).
 function computeProjectExportMinutes(projects, rules) {
   const out = new Map();
+  const excluded = new Set((rules.excludedProjectKeys || []).map((key) => String(key || "").trim().toLowerCase()));
+  const activeProjects = (projects || []).filter((project) => !excluded.has(worklogProjectExportKey(project).toLowerCase()));
   if (rules.targetHoursMode) {
-    const allocation = allocateTargetHoursMinutes(projects, rules);
+    const allocation = allocateTargetHoursMinutes(activeProjects, rules);
     const maxMinutes = rules.splitByWorkType ? 48 * 60 : 24 * 60;
-    for (const project of projects || []) {
+    for (const project of activeProjects) {
       const key = worklogProjectExportKey(project);
       const originalMinutes = Math.max(0, Number(project?.totalMs || 0) / 60000);
       if (!allocation.has(key)) {
@@ -4088,9 +4159,32 @@ function computeProjectExportMinutes(projects, rules) {
       out.set(key, { exportable: true, reason: "", originalMinutes, roundedMinutes, hours: Number((roundedMinutes / 60).toFixed(2)) });
     }
   } else {
-    for (const project of projects || []) {
+    for (const project of activeProjects) {
       out.set(worklogProjectExportKey(project), roundProjectActivityForExport(project, rules));
     }
+  }
+  for (const project of projects || []) {
+    const key = worklogProjectExportKey(project);
+    if (excluded.has(key.toLowerCase())) {
+      out.set(key, {
+        exportable: false,
+        reason: "removed from this export",
+        originalMinutes: Math.max(0, Number(project?.totalMs || 0) / 60000),
+        roundedMinutes: 0,
+      });
+    }
+  }
+  const maxMinutes = rules.splitByWorkType ? 48 * 60 : 24 * 60;
+  for (const [key, result] of out) {
+    const overrideKey = key.toLowerCase();
+    if (!result?.exportable || !Object.prototype.hasOwnProperty.call(rules.projectMinuteOverrides || {}, overrideKey)) continue;
+    const roundedMinutes = Number(rules.projectMinuteOverrides[overrideKey]);
+    if (!Number.isFinite(roundedMinutes) || roundedMinutes <= 0 || roundedMinutes > maxMinutes) continue;
+    out.set(key, {
+      ...result,
+      roundedMinutes,
+      hours: Number((roundedMinutes / 60).toFixed(2)),
+    });
   }
   return out;
 }
@@ -4812,6 +4906,7 @@ async function trackProjectActivityFromStatus(bridgeResult, options = {}) {
     docPath,
     docTitle: doc?.title,
     docType: doc?.type,
+    openDocuments: Array.isArray(bridgeResult?.openDocuments) ? bridgeResult.openDocuments : null,
     shouldCount: decision.shouldCount === true,
     eligibleSavedPath: hasActiveCountableDoc,
   });
@@ -4854,6 +4949,9 @@ async function trackProjectActivityFromStatus(bridgeResult, options = {}) {
         promotedMs: Math.round(Number(unsavedObservation.promoteMs || 0)),
         projectName: activeProjectName,
         committed: Boolean(project),
+        identityRelinked: unsavedObservation.identityRelinked === true,
+        sourceDocumentToken: unsavedObservation.sourceDocumentToken || "",
+        savedDocumentToken: unsavedObservation.savedDocumentToken || "",
       });
     } else if (unsavedObservation.kind === "discard") {
       logActivity("worklogger-unsaved-discarded", {
@@ -4875,6 +4973,7 @@ async function trackProjectActivityFromStatus(bridgeResult, options = {}) {
       promotedUnsavedMs: unsavedObservation.kind === "promote"
         ? Math.round(Number(unsavedObservation.promoteMs || 0))
         : 0,
+      unsavedIdentityRelinked: unsavedObservation.identityRelinked === true,
       discardedUnsavedMs: unsavedObservation.kind === "discard"
         ? Math.round(Number(unsavedObservation.discardedMs || 0))
         : 0,
@@ -4889,6 +4988,7 @@ async function trackProjectActivityFromStatus(bridgeResult, options = {}) {
       promotedUnsavedMs: unsavedObservation.kind === "promote"
         ? Math.round(Number(unsavedObservation.promoteMs || 0))
         : 0,
+      unsavedIdentityRelinked: unsavedObservation.identityRelinked === true,
       projectName: activeProjectName,
       counted: Boolean(project),
       isCounting: Boolean(hasActiveCountableDoc && decision.shouldCount),
@@ -4999,12 +5099,25 @@ const DEFAULT_AUTOMATION_SETTINGS = {
     searchRoots: [],
     exclusions: [...DEFAULT_DOC_SEARCH_EXCLUSIONS],
   },
-  // G-code (MPF) checker. materials/toolTypes are the remembered form inputs
+  // G-code (MPF) checker. materials/toolMaterials are remembered form inputs.
+  // Milling ap is inferred from the program when possible and remains editable
+  // per tool; low-confidence estimates require explicit operator confirmation.
   // (fed to the analyze form's dropdowns; editable/deletable in Settings).
   gcode: {
     searchRoot: DEFAULT_CAM_ROOT,
     materials: [],
-    toolTypes: [],
+    toolMaterials: [],
+    defaultMillingToolMaterial: "Carbide",
+    defaultDrillToolMaterial: "HSS",
+    defaultTapToolMaterial: "HSS",
+    machineMaxRpm: 10000,
+    machineMaxFeedMmMin: 10000,
+    defaultAggressiveness: "balanced",
+    defaultAePercent: 10,
+    defaultCoolingMode: "air",
+    defaultContactMode: "side",
+    defaultFluteCount: 2,
+    optimizedSuffix: "_optimized",
   },
 };
 
@@ -5053,6 +5166,13 @@ function normalizeCopyPathHotkey(value, fallback) {
   const normalized = normalizeHotkeyText(value, fallback);
   const key = normalized.toLowerCase().replace(/\s+/g, "");
   return ["space+c", "c,c", "x,x"].includes(key) ? fallback : normalized;
+}
+
+function normalizeGcodeOutputSuffix(value, fallback) {
+  const clean = cleanString(value);
+  if (!clean || clean.length > 40 || clean === "." || clean === "..") return fallback;
+  if (/[<>:"/\\|?*\x00-\x1f]/.test(clean) || clean.includes("..")) return fallback;
+  return clean;
 }
 
 function mergeAutomationSettings(raw = {}) {
@@ -5134,7 +5254,29 @@ function mergeAutomationSettings(raw = {}) {
       return {
         searchRoot: cleanString(g.searchRoot) || defaults.gcode.searchRoot,
         materials: normalizeSettingsList(g.materials, []),
-        toolTypes: normalizeSettingsList(g.toolTypes, []),
+        toolMaterials: normalizeSettingsList(g.toolMaterials ?? g.toolTypes, []),
+        defaultMillingToolMaterial: cleanString(g.defaultMillingToolMaterial ?? g.defaultMillingToolType)
+          || defaults.gcode.defaultMillingToolMaterial,
+        defaultDrillToolMaterial: cleanString(g.defaultDrillToolMaterial ?? g.defaultDrillToolType)
+          || defaults.gcode.defaultDrillToolMaterial,
+        defaultTapToolMaterial: cleanString(g.defaultTapToolMaterial ?? g.defaultDrillToolMaterial ?? g.defaultDrillToolType)
+          || defaults.gcode.defaultTapToolMaterial,
+        machineMaxRpm: Math.round(clampNumber(g.machineMaxRpm, defaults.gcode.machineMaxRpm, 100, 200000)),
+        machineMaxFeedMmMin: Math.round(clampNumber(
+          g.machineMaxFeedMmMin,
+          defaults.gcode.machineMaxFeedMmMin,
+          5,
+          100000,
+        )),
+        defaultAggressiveness: ["conservative", "balanced", "slightly_aggressive"].includes(cleanString(g.defaultAggressiveness))
+          ? cleanString(g.defaultAggressiveness) : defaults.gcode.defaultAggressiveness,
+        defaultAePercent: clampNumber(g.defaultAePercent, defaults.gcode.defaultAePercent, 0.1, 100),
+        defaultCoolingMode: ["dry", "air", "mist", "air_plus_mql", "flood", "through_tool"].includes(cleanString(g.defaultCoolingMode))
+          ? cleanString(g.defaultCoolingMode) : defaults.gcode.defaultCoolingMode,
+        defaultContactMode: ["side", "floor_tip", "mixed_3d", "wall_side", "chamfer_edge", "known_contact_angle", "unknown"].includes(cleanString(g.defaultContactMode))
+          ? cleanString(g.defaultContactMode) : defaults.gcode.defaultContactMode,
+        defaultFluteCount: Math.round(clampNumber(g.defaultFluteCount, defaults.gcode.defaultFluteCount, 1, 20)),
+        optimizedSuffix: normalizeGcodeOutputSuffix(g.optimizedSuffix, defaults.gcode.optimizedSuffix),
       };
     })(),
   };
@@ -5210,19 +5352,34 @@ function mergeSettingsLayers(...layers) {
 
 function migrateSettingsAliases(settings) {
   const migrated = mergeSettingsLayers(settings);
-  if (!isPlainSettingsObject(migrated.hotkeys)) return migrated;
-  const hotkeys = migrated.hotkeys;
-  const aliases = [
-    ["pasteProjectDate", "pasteSztDate"],
-    ["projectPrefix", "sztPrefix"],
-    ["projectDateTemplate", "sztTemplate"],
-    ["projectDateFormat", "sztDateFormat"],
-  ];
-  for (const [currentKey, legacyKey] of aliases) {
-    if (hotkeys[currentKey] === undefined && hotkeys[legacyKey] !== undefined) {
-      hotkeys[currentKey] = hotkeys[legacyKey];
+  if (isPlainSettingsObject(migrated.hotkeys)) {
+    const hotkeys = migrated.hotkeys;
+    const aliases = [
+      ["pasteProjectDate", "pasteSztDate"],
+      ["projectPrefix", "sztPrefix"],
+      ["projectDateTemplate", "sztTemplate"],
+      ["projectDateFormat", "sztDateFormat"],
+    ];
+    for (const [currentKey, legacyKey] of aliases) {
+      if (hotkeys[currentKey] === undefined && hotkeys[legacyKey] !== undefined) {
+        hotkeys[currentKey] = hotkeys[legacyKey];
+      }
+      delete hotkeys[legacyKey];
     }
-    delete hotkeys[legacyKey];
+  }
+  if (isPlainSettingsObject(migrated.gcode)) {
+    const gcode = migrated.gcode;
+    const aliases = [
+      ["toolMaterials", "toolTypes"],
+      ["defaultMillingToolMaterial", "defaultMillingToolType"],
+      ["defaultDrillToolMaterial", "defaultDrillToolType"],
+    ];
+    for (const [currentKey, legacyKey] of aliases) {
+      if (gcode[currentKey] === undefined && gcode[legacyKey] !== undefined) {
+        gcode[currentKey] = gcode[legacyKey];
+      }
+      delete gcode[legacyKey];
+    }
   }
   return migrated;
 }
@@ -5240,12 +5397,12 @@ async function readSettingsDocument(filePath) {
   return readJsonFileNoBom(filePath);
 }
 
-function bundledSettingsPresetPath() {
-  return assetPath("install-settings-preset.json");
+function installSettingsPresetPath() {
+  return assetPath("ExcelsisHelper-settings.json");
 }
 
-async function readBundledSettingsPreset() {
-  const presetPath = bundledSettingsPresetPath();
+async function readInstallSettingsPreset() {
+  const presetPath = installSettingsPresetPath();
   if (!await pathExists(presetPath)) return { found: false, path: presetPath, settings: {} };
   const document = await readSettingsDocument(presetPath);
   return { found: true, path: presetPath, settings: settingsPayloadFromDocument(document) };
@@ -5261,21 +5418,21 @@ async function readRawAutomationSettings() {
 
 async function readAutomationSettings() {
   const raw = await readRawAutomationSettings();
-  const preset = await readBundledSettingsPreset().catch(() => ({ settings: {} }));
+  const preset = await readInstallSettingsPreset().catch(() => ({ settings: {} }));
   // Preset values are fallback values. Existing app data always wins.
   return mergeAutomationSettings(mergeSettingsLayers(preset.settings, raw));
 }
 
 async function readEffectiveAutomationDefaults() {
-  const preset = await readBundledSettingsPreset().catch(() => ({ settings: {} }));
+  const preset = await readInstallSettingsPreset().catch(() => ({ settings: {} }));
   return mergeAutomationSettings(mergeSettingsLayers(
     cloneDefaultAutomationSettings(),
     preset.settings,
   ));
 }
 
-async function applyBundledSettingsPreset() {
-  const preset = await readBundledSettingsPreset();
+async function applyInstallSettingsPreset() {
+  const preset = await readInstallSettingsPreset();
   if (!preset.found || !Object.keys(preset.settings).length) {
     return { applied: false, path: preset.path, settings: await readAutomationSettings() };
   }
@@ -7239,7 +7396,18 @@ trustedIpcHandle("automation:list-worklogs", async () => {
 
 trustedIpcHandle("automation:list-worklog-worktypes", async () => readErpWorklogWorkTypes());
 
-trustedIpcHandle("automation:export-worklogs", async (_event, rules) => exportProjectActivityToErp(rules));
+trustedIpcHandle("automation:export-worklogs", async (_event, rules) => {
+  const result = await exportProjectActivityToErp(rules);
+  if (result?.ok) {
+    saveAutoExportStatus({
+      skipDate: localDateKey(),
+      manualExportAt: Date.now(),
+      manualExportFileName: result.fileName || null,
+    });
+    result.autoExport = getAutoExportStatusForUi();
+  }
+  return result;
+});
 
 trustedIpcHandle("automation:export-last-day-worklogs", async (_event, rules) => exportLastDayWorklogs(rules));
 
@@ -8308,6 +8476,9 @@ const GCODE_CAM_FOLDERS_MAX = 40;
 const GCODE_CHECKS_KEEP = 10;
 const GCODE_MAX_FILE_BYTES = 64 * 1024 * 1024;
 const GCODE_REMEMBER_MAX = 30;
+const GCODE_LOCAL_SESSION_TTL_MS = 30 * 60 * 1000;
+const GCODE_LOCAL_SESSION_MAX = 1;
+const GCODE_WORKER_TIMEOUT_MS = 3 * 60 * 1000;
 const GCODE_SCAN_SKIP_DIRS = new Set([
   "$recycle.bin", "system volume information", "windows", "program files",
   "program files (x86)", "programdata", "node_modules", "appdata",
@@ -8319,6 +8490,12 @@ function gcodeCamFoldersPath() {
 
 function gcodeChecksDir() {
   return path.join(automationWorkdirRoot(), "GcodeChecks");
+}
+
+function gcodeAnalysisWorkerPath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "app.asar.unpacked", "machining-engine", "mpf-analysis-worker.cjs")
+    : path.join(__dirname, "machining-engine", "mpf-analysis-worker.cjs");
 }
 
 async function readGcodeCamFolders() {
@@ -8412,6 +8589,7 @@ async function scanMpfFiles(roots) {
 
 let gcodeScanInFlight = null;
 let gcodeLastScan = null;
+const gcodeLocalSessions = new Map();
 
 async function listRecentMpfFiles() {
   if (gcodeScanInFlight) return gcodeScanInFlight;
@@ -8443,26 +8621,279 @@ async function listRecentMpfFiles() {
   return gcodeScanInFlight;
 }
 
+function gcodePathKey(value) {
+  return path.resolve(String(value || "")).toLowerCase();
+}
+
+function pruneGcodeLocalSessions() {
+  const cutoff = Date.now() - GCODE_LOCAL_SESSION_TTL_MS;
+  for (const [id, sessionRecord] of gcodeLocalSessions) {
+    if (sessionRecord.lastUsedAt < cutoff) gcodeLocalSessions.delete(id);
+  }
+  const oldestFirst = [...gcodeLocalSessions.entries()]
+    .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
+  while (oldestFirst.length > GCODE_LOCAL_SESSION_MAX) {
+    const [id] = oldestFirst.shift();
+    gcodeLocalSessions.delete(id);
+  }
+}
+
+async function authorizeMpfPath(filePath) {
+  const requested = cleanString(filePath);
+  if (!requested || !requested.toLowerCase().endsWith(".mpf")) {
+    throw new Error("Select a scanned .MPF file.");
+  }
+  const resolved = path.resolve(requested);
+  const scan = await listRecentMpfFiles();
+  const authorized = scan?.ok && (scan.files || []).some((file) =>
+    gcodePathKey(file?.path) === gcodePathKey(resolved)
+  );
+  if (!authorized) throw new Error("The file is not in the current G-code scan.");
+  const st = await fs.stat(resolved);
+  if (!st.isFile() || st.size <= 0 || st.size > GCODE_MAX_FILE_BYTES) {
+    throw new Error("The selected file is not readable as a G-code program.");
+  }
+  return { path: resolved, stat: st };
+}
+
+async function readAuthorizedMpf(filePath) {
+  const authorized = await authorizeMpfPath(filePath);
+  const resolved = authorized.path;
+  const st = authorized.stat;
+  const buffer = await fs.readFile(resolved);
+  const decoded = decodeMpfBuffer(buffer);
+  return {
+    path: resolved,
+    stat: st,
+    buffer,
+    text: decoded.text,
+    encoding: decoded.encoding,
+    bom: decoded.bom,
+    sha256: sha256Buffer(buffer),
+  };
+}
+
+async function parseAuthorizedMpfInWorker(filePath, parserOptions) {
+  const authorized = await authorizeMpfPath(filePath);
+  const result = await runManagedWorkerRequest(gcodeAnalysisWorkerPath(), {
+    operation: "parse",
+    filePath: authorized.path,
+    maxBytes: GCODE_MAX_FILE_BYTES,
+    parserOptions,
+  }, GCODE_WORKER_TIMEOUT_MS);
+  return {
+    path: authorized.path,
+    stat: authorized.stat,
+    ...result.source,
+    analysis: result.analysis,
+  };
+}
+
+async function rewriteMpfInWorker(sessionRecord) {
+  return runManagedWorkerRequest(gcodeAnalysisWorkerPath(), {
+    operation: "rewrite",
+    filePath: sessionRecord.sourcePath,
+    maxBytes: GCODE_MAX_FILE_BYTES,
+    expectedSha256: sessionRecord.sourceSha256,
+    expectedStructure: structureSignature(sessionRecord.analysis),
+    parserOptions: sessionRecord.parserOptions,
+    proposal: { tools: sessionRecord.proposal.tools },
+  }, GCODE_WORKER_TIMEOUT_MS);
+}
+
+function gcodeParserOptions(settings, filePath, toolMaterialOverride = "") {
+  return {
+    programName: path.basename(filePath),
+    defaultMillingToolMaterial: settings.gcode.defaultMillingToolMaterial,
+    defaultDrillToolMaterial: settings.gcode.defaultDrillToolMaterial,
+    defaultTapToolMaterial: settings.gcode.defaultTapToolMaterial,
+    toolMaterialOverride: cleanString(toolMaterialOverride),
+  };
+}
+
+const GCODE_LOCAL_OVERRIDE_FIELDS = new Set([
+  "toolMaterial", "diameterMm", "fluteCount", "effectiveTeeth", "apMm", "aePercent",
+  "contactMode", "featureDepthMm", "holeDepthMm", "holeKind", "peckDepthMm", "dwellSeconds",
+  "threadDepthMm", "tapStyle", "preDrillDiameterMm", "pitchMm", "operatorConfirmedPitchMm",
+  "threadLabel", "currentRpm", "currentFeed", "coatingClass", "applicationClass", "stickoutMm",
+  "vendorMaxRpm", "vendorMaxFeedMmMin", "pointAngleDeg", "coolingMode", "coolingContinuous",
+  "coolingDirected", "chipEvacuationScore", "lubricationScore", "operation", "contactAngleDeg",
+  "activeDiameterMinMm", "activeDiameterMaxMm", "edgeUtilizationPercent", "roughingProfile",
+]);
+
+function cleanGcodeLocalInput(value, settings) {
+  const input = value && typeof value === "object" ? value : {};
+  const result = {
+    materialFamily: cleanString(input.materialFamily),
+    materialGrade: cleanString(input.materialGrade),
+    materialCondition: cleanString(input.materialCondition),
+    hardnessValue: input.hardnessValue,
+    hardnessScale: cleanString(input.hardnessScale) || "HRC",
+    hardnessMeasured: input.hardnessMeasured === true,
+    machineMaxRpm: input.machineMaxRpm ?? settings.gcode.machineMaxRpm,
+    machineMaxFeedMmMin: input.machineMaxFeedMmMin ?? settings.gcode.machineMaxFeedMmMin,
+    aggressiveness: cleanString(input.aggressiveness) || settings.gcode.defaultAggressiveness,
+    aePercent: input.aePercent ?? settings.gcode.defaultAePercent,
+    coolingMode: cleanString(input.coolingMode) || settings.gcode.defaultCoolingMode,
+    coolingContinuous: input.coolingContinuous,
+    coolingDirected: input.coolingDirected,
+    contactMode: cleanString(input.contactMode) || settings.gcode.defaultContactMode,
+    fluteCount: input.fluteCount ?? settings.gcode.defaultFluteCount,
+    priority: cleanString(input.priority) || "balanced",
+    toolOverrides: Object.create(null),
+  };
+  const overrides = input.toolOverrides && typeof input.toolOverrides === "object" ? input.toolOverrides : {};
+  for (const [toolId, raw] of Object.entries(overrides).slice(0, 100)) {
+    if (!/^tool-\d+$/.test(toolId) || !raw || typeof raw !== "object") continue;
+    const clean = Object.create(null);
+    for (const [key, fieldValue] of Object.entries(raw)) {
+      if (GCODE_LOCAL_OVERRIDE_FIELDS.has(key)) clean[key] = fieldValue;
+    }
+    result.toolOverrides[toolId] = clean;
+  }
+  return result;
+}
+
+function summarizeGcodeSourceTokens(tokens, lineLimit = 50) {
+  let tokenCount = 0;
+  const lineNumbers = new Set();
+  for (const token of tokens || []) {
+    if (token?.type === "feed_word_batch") {
+      const indexes = token.lineIndexes || [];
+      tokenCount += indexes.length;
+      for (let index = 0; index < indexes.length && lineNumbers.size < lineLimit; index += 1) {
+        lineNumbers.add(Number(indexes[index]) + 1);
+      }
+    } else {
+      tokenCount += 1;
+      if (lineNumbers.size < lineLimit && Number.isInteger(Number(token?.lineNumber))) {
+        lineNumbers.add(Number(token.lineNumber));
+      }
+    }
+  }
+  return {
+    tokenCount,
+    lineNumbers: [...lineNumbers],
+    lineNumbersTruncated: tokenCount > lineNumbers.size,
+  };
+}
+
+function publicGcodeProposal(proposal) {
+  return {
+    method: proposal.method,
+    common: proposal.common,
+    inputErrors: proposal.inputErrors,
+    materialResolution: proposal.materialResolution,
+    tools: (proposal.tools || []).map((tool) => ({
+      id: tool.id,
+      label: tool.label,
+      description: tool.description,
+      process: tool.process,
+      toolType: tool.toolType,
+      classificationConfidence: tool.classificationConfidence,
+      status: tool.status,
+      missingInputs: tool.missingInputs,
+      warnings: tool.warnings,
+      controls: tool.controls,
+      recommendation: tool.recommendation,
+      changeGroups: (tool.changeGroups || []).map(({ tokens, ...group }) => ({
+        ...group,
+        ...summarizeGcodeSourceTokens(tokens),
+      })),
+    })),
+    timeEstimate: proposal.timeEstimate,
+    acceptedChangeCount: proposal.acceptedChangeCount,
+    canWrite: proposal.canWrite,
+  };
+}
+
+function publicGcodeAiAnalysis(analysis) {
+  return {
+    parserVersion: analysis.parserVersion,
+    lineCount: analysis.lineCount,
+    lineEnding: analysis.lineEnding,
+    headerComments: analysis.headerComments,
+    incrementalUsed: analysis.incrementalUsed,
+    program: analysis.program,
+    toolDefaults: analysis.toolDefaults,
+    tools: (analysis.tools || []).map((tool) => {
+      const {
+        rpmDefinitions,
+        feedDefinitions,
+        feedClasses,
+        cyclesDetailed,
+        motionRecordIds,
+        ...publicTool
+      } = tool;
+      return publicTool;
+    }),
+    postedTimes: analysis.postedTimes,
+    timeEstimate: analysis.timeEstimate,
+  };
+}
+
+function getGcodeLocalSession(sessionId) {
+  pruneGcodeLocalSessions();
+  const id = cleanString(sessionId);
+  const sessionRecord = gcodeLocalSessions.get(id);
+  if (!sessionRecord) throw new Error("This local analysis expired. Analyze the MPF again.");
+  sessionRecord.lastUsedAt = Date.now();
+  return sessionRecord;
+}
+
+function gcodeLocalResponse(sessionRecord) {
+  return {
+    ok: true,
+    sessionId: sessionRecord.id,
+    source: {
+      name: path.basename(sessionRecord.sourcePath),
+      path: sessionRecord.sourcePath,
+      sha256: sessionRecord.sourceSha256,
+      size: sessionRecord.sourceSize,
+      encoding: sessionRecord.encoding,
+      bom: sessionRecord.bom,
+    },
+    proposal: publicGcodeProposal(sessionRecord.proposal),
+  };
+}
+
 // --- MPF parser: a positional simulation (backplot without the rendering) ---
 // Understands the SINUMERIK-flavored g-code SolidCAM posts emit: block numbers,
 // T="NAME"/T<n> tool words activated by M6, modal G0/G1/G2/G3 motion, X/Y/Z
 // with either "X12.5" or "X=12.5" spelling, F/S words, CYCLE/POCKET calls, and
 // ";" comments. D words are Sinumerik tool-offset selects, NOT depths - tool
 // diameter is only inferred from the tool NAME (e.g. MILL_D10, T="10MM_EM").
-function parseMpfProgram(text) {
+function parseMpfProgram(text, options = {}) {
   const lines = String(text || "").split(/\r?\n/);
   const headerComments = [];
-  for (const rawLine of lines.slice(0, 60)) {
+  for (const rawLine of lines.slice(0, 120)) {
     const trimmed = rawLine.trim();
     if (!trimmed) continue;
     if (trimmed.startsWith(";")) {
       headerComments.push(trimmed.slice(1).trim().slice(0, 160));
-      if (headerComments.length >= 30) break;
-      continue;
+      if (headerComments.length >= 40) break;
     }
-    if (trimmed.startsWith("%")) continue;
-    break; // header comment block ended at the first real code line
   }
+
+  const toolCatalog = new Map();
+  for (const rawLine of lines.slice(0, 200)) {
+    const match = /^\s*;\s*T(\d+)\s+(.+?)\s+ID\s*:\s*([^,\s]*)(?:\s*,|\s+-|$)/i.exec(rawLine);
+    if (!match) continue;
+    const item = {
+      number: Number(match[1]),
+      description: match[2].trim().slice(0, 160),
+      id: match[3].trim(),
+    };
+    if (item.id) toolCatalog.set(item.id.toLowerCase(), item);
+    toolCatalog.set(`t${item.number}`, item);
+  }
+  const cleanOption = (value, fallback) => {
+    const textValue = typeof value === "string" ? value.trim() : "";
+    return textValue || fallback;
+  };
+  const defaultMillingToolType = cleanOption(options.defaultMillingToolType, "Carbide");
+  const defaultDrillToolType = cleanOption(options.defaultDrillToolType, "HSS");
+  const toolTypeOverride = cleanOption(options.toolTypeOverride, "");
 
   const tools = [];
   const toolByKey = new Map();
@@ -8473,16 +8904,20 @@ function parseMpfProgram(text) {
   function ensureTool(label) {
     const key = label.toLowerCase();
     if (toolByKey.has(key)) return toolByKey.get(key);
+    const catalog = toolCatalog.get(key) || null;
+    const diameterText = `${label} ${catalog?.description || ""}`;
     const nameDia = (() => {
       // D<number> or <number>MM inside the tool name; tolerate _ or . decimals.
-      const dMatch = label.match(/D[\s_=]?(\d+(?:[._]\d+)?)/i);
+      const dMatch = diameterText.match(/D[\s_=]?(\d+(?:[._]\d+)?)/i);
       if (dMatch) return Number(dMatch[1].replace("_", "."));
-      const mmMatch = label.match(/(\d+(?:[._]\d+)?)\s*MM/i);
+      const mmMatch = diameterText.match(/(\d+(?:[._]\d+)?)\s*MM/i);
       if (mmMatch) return Number(mmMatch[1].replace("_", "."));
       return null;
     })();
     const tool = {
       label,
+      description: catalog?.description || "",
+      headerToolNumber: catalog?.number || null,
       diameterMm: Number.isFinite(nameDia) && nameDia > 0 && nameDia <= 200 ? nameDia : null,
       rpms: [],
       feeds: new Map(),        // feed value -> cutting-move count
@@ -8673,8 +9108,22 @@ function parseMpfProgram(text) {
     const plungeFeedList = Array.from(tool.plungeFeeds.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([f, count]) => ({ feed: f, moves: count }));
+    const classificationText = `${tool.description} ${tool.label} ${tool.cycles.join(" ")}`;
+    // Prefer an explicit milling description (including THREAD MILL) over
+    // drill-family words. Otherwise drilling cycles and drill/tap/ream names
+    // are treated as drills; an unknown tool remains a milling tool.
+    const millingLike = /(?:MILL|MILLING|CUTTER|BALL\s+NOSE)/i.test(classificationText);
+    const drillLike = !millingLike
+      && /(?:DRILL|CENTER\s*DRILL|SPOT|REAM|TAP|BOHR|FURO|FURAS|MENET|GEWINDE|CYCLE8[1-9])/i.test(classificationText);
+    const toolKind = drillLike ? "drill" : "milling";
+    const toolMaterial = toolTypeOverride
+      || (toolKind === "drill" ? defaultDrillToolType : defaultMillingToolType);
     return {
       label: tool.label,
+      description: tool.description,
+      headerToolNumber: tool.headerToolNumber,
+      toolKind,
+      toolMaterial,
       diameterMm: tool.diameterMm,
       rpms: tool.rpms,
       feeds: feedList,
@@ -8700,12 +9149,18 @@ function parseMpfProgram(text) {
     lineCount: lines.length,
     headerComments,
     incrementalUsed: g91Seen,
+    toolDefaults: {
+      milling: defaultMillingToolType,
+      drill: defaultDrillToolType,
+      override: toolTypeOverride,
+    },
     tools: report,
   };
 }
 
 function formatGcodeToolMd(tool, index) {
   const fmt = (v, unit = "") => (v === null || v === undefined ? "not detected" : `${v}${unit}`);
+  const cell = (value) => String(value || "not detected").replace(/\|/g, "\\|");
   const feeds = tool.feeds.length
     ? tool.feeds.map((f) => `${f.feed} (${f.moves} moves)`).join(", ")
     : "none found";
@@ -8719,6 +9174,9 @@ function formatGcodeToolMd(tool, index) {
     "",
     "| Parameter | Extracted value |",
     "|---|---|",
+    `| Header description | ${cell(tool.description)} |`,
+    `| Classified operation | ${tool.toolKind === "drill" ? "drilling / tapping" : "milling"} |`,
+    `| Tool material used for recommendations | ${cell(tool.toolMaterial)} |`,
     `| Tool diameter (from name) | ${fmt(tool.diameterMm, " mm")} |`,
     `| Spindle RPM (S) | ${tool.rpms.length ? tool.rpms.join(", ") : "not found"} |`,
     `| Cutting feeds (F, mm/min) | ${feeds} |`,
@@ -8739,7 +9197,7 @@ function formatGcodeToolMd(tool, index) {
   ].join("\n");
 }
 
-function buildGcodePromptMd({ analysis, mpfPath, material, toolType }) {
+function buildGcodePromptMd({ analysis, mpfPath, material, toolMaterial }) {
   const fileName = path.basename(mpfPath);
   const parts = [
     `# CNC milling parameter check: ${fileName}`,
@@ -8750,7 +9208,9 @@ function buildGcodePromptMd({ analysis, mpfPath, material, toolType }) {
     "",
     `- G-code dialect: SINUMERIK (.MPF file)`,
     `- Workpiece material (user input): **${material || "not specified"}**`,
-    `- Tooling note (user input): **${toolType || "not specified"}**`,
+    `- Tool material override (user input): **${toolMaterial || "none; per-tool defaults used"}**`,
+    `- Default milling-tool material: **${analysis.toolDefaults?.milling || "Carbide"}**`,
+    `- Default drill/tap material: **${analysis.toolDefaults?.drill || "HSS"}**`,
     `- Program: \`${mpfPath}\``,
     `- Program length: ${analysis.lineCount} lines${analysis.incrementalUsed ? " (uses G91 incremental blocks - extracted absolute values may be approximate)" : ""}`,
     "",
@@ -8769,7 +9229,7 @@ function buildGcodePromptMd({ analysis, mpfPath, material, toolType }) {
   parts.push(
     "## What I need from you",
     "",
-    `You are an experienced CNC milling programmer. For EACH tool above, given the workpiece material (${material || "unspecified"}) and the tooling note, evaluate:`,
+    `You are an experienced CNC milling programmer. For EACH tool above, given the workpiece material (${material || "unspecified"}), use that tool's classified material shown in its table and evaluate:`,
     "",
     "1. **Feed & RPM** - are the cutting feeds and spindle speed sensible for this tool diameter and material? Compute the implied chip load if possible.",
     "2. **DOC (step-down)** - is the axial depth per pass appropriate?",
@@ -8835,11 +9295,11 @@ async function listGcodeCheckFiles() {
   return items.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, GCODE_CHECKS_KEEP);
 }
 
-// Persist the material/tooltype the user just used so the form's dropdowns
+// Persist the material/tool-material input so the form's dropdowns remember it.
 // remember them. Deliberately does NOT go through writeAutomationSettings():
 // that path restarts the hotkey helper and re-applies the BOM macro language,
 // none of which these two lists affect.
-async function rememberGcodeInputs(material, toolType) {
+async function rememberGcodeInputs(material, toolMaterial) {
   let raw = {};
   try { raw = await readJsonFileNoBom(automationSettingsPath()); } catch {}
   const merged = mergeAutomationSettings(raw);
@@ -8850,7 +9310,7 @@ async function rememberGcodeInputs(material, toolType) {
     return [clean, ...list.filter((item) => item.toLowerCase() !== key)].slice(0, GCODE_REMEMBER_MAX);
   };
   merged.gcode.materials = addTo(merged.gcode.materials, material);
-  merged.gcode.toolTypes = addTo(merged.gcode.toolTypes, toolType);
+  merged.gcode.toolMaterials = addTo(merged.gcode.toolMaterials, toolMaterial);
   await fs.mkdir(automationWorkdirRoot(), { recursive: true });
   await fs.writeFile(automationSettingsPath(), `${JSON.stringify(merged, null, 2)}\n`, "utf8");
   return merged.gcode;
@@ -8858,50 +9318,238 @@ async function rememberGcodeInputs(material, toolType) {
 
 trustedIpcHandle("automation:gcode-list-recent", async () => listRecentMpfFiles());
 
-trustedIpcHandle("automation:gcode-analyze", async (_event, request = {}) => {
-  const mpfPath = path.resolve(cleanString(request.mpfPath));
-  const material = cleanString(request.material);
-  const toolType = cleanString(request.toolType);
-  if (!mpfPath.toLowerCase().endsWith(".mpf")) {
-    return { ok: false, error: "Select a .MPF file." };
+trustedIpcHandle("automation:gcode-open-containing-folder", async (_event, filePath) => {
+  const requested = cleanString(filePath);
+  if (!requested || !requested.toLowerCase().endsWith(".mpf")) {
+    return { ok: false, error: "Select a scanned .MPF file." };
   }
-  let st;
+  const resolved = path.resolve(requested);
+  const scan = gcodeLastScan?.ok ? gcodeLastScan : await listRecentMpfFiles();
+  const authorized = (scan?.files || []).some((file) =>
+    path.resolve(String(file?.path || "")).toLowerCase() === resolved.toLowerCase()
+  );
+  if (!authorized) {
+    return { ok: false, error: "The file is not in the current G-code scan." };
+  }
   try {
-    st = await fs.stat(mpfPath);
+    const st = await fs.stat(resolved);
+    if (!st.isFile()) return { ok: false, error: "The selected .MPF is not a regular file." };
   } catch {
-    return { ok: false, error: "The selected file no longer exists." };
+    return { ok: false, error: "The selected .MPF no longer exists." };
   }
-  if (!st.isFile() || st.size > GCODE_MAX_FILE_BYTES) {
-    return { ok: false, error: "The selected file is not readable as a g-code program." };
-  }
-  let text;
+  shell.showItemInFolder(resolved);
+  return { ok: true, path: resolved, folder: path.dirname(resolved), selected: true };
+});
+
+trustedIpcHandle("automation:gcode-analyze", async (_event, request = {}) => {
   try {
-    text = await fs.readFile(mpfPath, "utf8");
+    const material = cleanString(request.material);
+    const toolMaterial = cleanString(request.toolMaterial ?? request.toolType);
+    const settings = await readAutomationSettings();
+    const requestedPath = path.resolve(cleanString(request.mpfPath));
+    const parserOptions = gcodeParserOptions(settings, requestedPath, toolMaterial);
+    const source = await parseAuthorizedMpfInWorker(
+      requestedPath,
+      parserOptions,
+    );
+    const analysis = source.analysis;
+    const prompt = buildGcodePromptMd({ analysis, mpfPath: source.path, material, toolMaterial });
+
+    const dir = gcodeChecksDir();
+    await fs.mkdir(dir, { recursive: true });
+    const safeBase = path.basename(source.path, path.extname(source.path))
+      .replace(/[^a-z0-9-_]/gi, "_").slice(0, 40) || "program";
+    const stampText = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
+    const promptPath = path.join(dir, `gcode-check-${safeBase}-${stampText}.md`);
+    await fs.writeFile(promptPath, prompt, "utf8");
+    await pruneGcodeCheckFiles();
+    const gcodeSettings = await rememberGcodeInputs(material, toolMaterial).catch(() => null);
+
+    return {
+      ok: true,
+      analysis: publicGcodeAiAnalysis(analysis),
+      promptPath,
+      material,
+      toolMaterial,
+      gcode: gcodeSettings,
+    };
   } catch (error) {
-    return { ok: false, error: `Could not read the file: ${String(error?.message || error)}` };
+    return { ok: false, error: String(error?.message || error) };
   }
+});
 
-  const analysis = parseMpfProgram(text);
-  const prompt = buildGcodePromptMd({ analysis, mpfPath, material, toolType });
+trustedIpcHandle("automation:gcode-material-options", async (_event, request = {}) => ({
+  ok: true,
+  groups: listMaterialGroups(),
+  grades: request.family
+    ? listMaterialGrades(cleanString(request.family), cleanString(request.query), 200)
+    : [],
+}));
 
-  const dir = gcodeChecksDir();
-  await fs.mkdir(dir, { recursive: true });
-  const safeBase = path.basename(mpfPath, path.extname(mpfPath))
-    .replace(/[^a-z0-9-_]/gi, "_").slice(0, 40) || "program";
-  const stampText = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
-  const promptPath = path.join(dir, `gcode-check-${safeBase}-${stampText}.md`);
-  await fs.writeFile(promptPath, prompt, "utf8");
-  await pruneGcodeCheckFiles();
-  const gcodeSettings = await rememberGcodeInputs(material, toolType).catch(() => null);
+trustedIpcHandle("automation:gcode-local-analyze", async (_event, request = {}) => {
+  try {
+    const settings = await readAutomationSettings();
+    const requestedPath = path.resolve(cleanString(request.mpfPath));
+    const parserOptions = gcodeParserOptions(settings, requestedPath);
+    // The renderer exposes only one active local proposal. Release the prior
+    // compact analysis before parsing another potentially large MPF.
+    gcodeLocalSessions.clear();
+    const source = await parseAuthorizedMpfInWorker(requestedPath, parserOptions);
+    const analysis = source.analysis;
+    const input = cleanGcodeLocalInput(request.input, settings);
+    const proposal = buildLocalProposal(analysis, input);
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const sessionRecord = {
+      id,
+      createdAt: now,
+      lastUsedAt: now,
+      sourcePath: source.path,
+      sourceSha256: source.sha256,
+      sourceSize: source.size,
+      sourceMtimeMs: source.stat.mtimeMs,
+      encoding: source.encoding,
+      bom: source.bom,
+      parserOptions,
+      analysis,
+      input,
+      proposal,
+    };
+    gcodeLocalSessions.set(id, sessionRecord);
+    pruneGcodeLocalSessions();
+    return gcodeLocalResponse(sessionRecord);
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
 
-  return {
-    ok: true,
-    analysis,
-    promptPath,
-    material,
-    toolType,
-    gcode: gcodeSettings,
-  };
+trustedIpcHandle("automation:gcode-local-recalculate", async (_event, request = {}) => {
+  try {
+    const sessionRecord = getGcodeLocalSession(request.sessionId);
+    if (request.input && typeof request.input === "object") {
+      const settings = await readAutomationSettings();
+      sessionRecord.input = cleanGcodeLocalInput(request.input, settings);
+      sessionRecord.proposal = buildLocalProposal(sessionRecord.analysis, sessionRecord.input);
+    }
+    if (Array.isArray(request.selections)) {
+      sessionRecord.proposal = applyProposalSelections(sessionRecord.proposal, request.selections);
+    }
+    return gcodeLocalResponse(sessionRecord);
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+trustedIpcHandle("automation:gcode-local-create-copy", async (event, request = {}) => {
+  try {
+    const sessionRecord = getGcodeLocalSession(request.sessionId);
+    if (Array.isArray(request.selections)) {
+      sessionRecord.proposal = applyProposalSelections(sessionRecord.proposal, request.selections);
+    }
+    if (!sessionRecord.proposal.canWrite) {
+      return { ok: false, error: "No accepted numeric changes are ready to write." };
+    }
+    const settings = await readAutomationSettings();
+    const suffix = normalizeOptimizedSuffix(
+      cleanString(request.suffix) || settings.gcode.optimizedSuffix,
+    );
+    const source = await readAuthorizedMpf(sessionRecord.sourcePath);
+    if (source.sha256 !== sessionRecord.sourceSha256) {
+      return { ok: false, error: "The source MPF changed after analysis. Analyze it again before creating a copy." };
+    }
+    const preparedEdits = summarizeAcceptedEdits(sessionRecord.proposal);
+    if (!preparedEdits.editCount) {
+      return { ok: false, error: "No accepted numeric changes are ready to write." };
+    }
+    const destinationPath = optimizedPathFor(source.path, suffix);
+    const auditPath = `${destinationPath}.audit.json`;
+    if (await pathExists(destinationPath)) {
+      return { ok: false, error: `The optimized copy already exists: ${destinationPath}` };
+    }
+    if (await pathExists(auditPath)) {
+      return { ok: false, error: `The optimized-copy audit file already exists: ${auditPath}` };
+    }
+    const time = sessionRecord.proposal.timeEstimate;
+    const percent = time?.percentChange === null || time?.percentChange === undefined
+      ? "unknown" : `${time.percentChange > 0 ? "+" : ""}${time.percentChange}%`;
+    const messageOptions = {
+      type: "warning",
+      buttons: ["Create optimized copy", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      title: "Create optimized MPF copy",
+      message: `Create ${path.basename(destinationPath)}?`,
+      detail: [
+        `${preparedEdits.editCount} exact RPM/feed token(s) in ${preparedEdits.groupCount} reviewed group(s) will change.`,
+        `Estimated machining-time change: ${percent}.`,
+        "The source MPF and posted time comments will remain unchanged.",
+      ].join("\n"),
+    };
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const confirmation = parent
+      ? await dialog.showMessageBox(parent, messageOptions)
+      : await dialog.showMessageBox(messageOptions);
+    if (confirmation.response !== 0) return { ok: true, canceled: true };
+
+    const rewritten = await rewriteMpfInWorker(sessionRecord);
+    const outputBuffer = Buffer.from(rewritten.outputBuffer);
+    const outputHash = rewritten.outputSha256;
+    const createdAt = new Date().toISOString();
+    const audit = {
+      schema: "excelsis-optimized-mpf-audit-v2",
+      appVersion: app.getVersion(),
+      createdAt,
+      source: {
+        path: source.path,
+        sha256: rewritten.source.sha256,
+        size: rewritten.source.size,
+        encoding: rewritten.source.encoding,
+        bom: rewritten.source.bom,
+      },
+      output: {
+        path: destinationPath,
+        sha256: outputHash,
+        size: outputBuffer.length,
+      },
+      structureVerification: rewritten.verification,
+      timeEstimate: sessionRecord.proposal.timeEstimate,
+      proposal: publicGcodeProposal(sessionRecord.proposal),
+      changeCount: rewritten.editCount,
+      changeGroups: rewritten.editSummary,
+      detailedChangesTruncated: rewritten.editsTruncated,
+      changes: rewritten.edits.map((edit) => ({
+        toolId: edit.toolId,
+        groupId: edit.groupId,
+        kind: edit.kind,
+        classification: edit.classification,
+        source: edit.source,
+        lineNumber: edit.lineNumber,
+        from: edit.oldValue,
+        to: edit.newValue,
+      })),
+    };
+    await fs.writeFile(auditPath, `${JSON.stringify(audit, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+    try {
+      await fs.writeFile(destinationPath, outputBuffer, { flag: "wx" });
+    } catch (error) {
+      await fs.unlink(auditPath).catch(() => {});
+      throw error;
+    }
+    shell.showItemInFolder(destinationPath);
+    return {
+      ok: true,
+      canceled: false,
+      path: destinationPath,
+      auditPath,
+      sha256: outputHash,
+      changeCount: rewritten.editCount,
+      timeEstimate: sessionRecord.proposal.timeEstimate,
+    };
+  } catch (error) {
+    const conflict = error?.code === "EEXIST" ? "The optimized copy or its audit file already exists." : "";
+    return { ok: false, error: conflict || String(error?.message || error) };
+  }
 });
 
 trustedIpcHandle("automation:gcode-list-checks", async () => ({ ok: true, files: await listGcodeCheckFiles() }));
@@ -9059,7 +9707,7 @@ app.whenReady().then(async () => {
     refreshNetworkDriveMap().catch(() => {});
     await killStrayHotkeyHelpers();
     try {
-      const preset = await applyBundledSettingsPreset().catch(() => null);
+      const preset = await applyInstallSettingsPreset().catch(() => null);
       const settings = preset?.settings || await readAutomationSettings();
       applyLocationSettings(settings);
       await applyMacroSettings(settings).catch(() => {});

@@ -4,13 +4,14 @@
 #   resources/scripts/**
 #   resources/build/**
 #   resources/macros/**
-#   resources/install-settings-preset.json
+# An optional ExcelsisHelper-settings.json beside the installer is copied into
+# resources by installer.nsh. It is deliberately not embedded in the package.
 # The de-elevated app deploys bundled macros to the logged-in user's Documents
 # folder once per version and backs up differing existing source macros.
 appId: local.excelsis.automation
 productName: Excelsis Helper
 artifactName: ${productName}-Setup-${version}.${ext}
-copyright: Excelsis
+copyright: Excelsis contributors
 
 directories:
   output: dist
@@ -46,8 +47,15 @@ files:
   - automation.html
   - automation.js
   - automation.css
+  - machining-engine/**/*
   - icon-256.png
   - loading.html
+
+# Node worker_threads needs a real filesystem entrypoint. Keep the engine in
+# the application package, but unpack it beside app.asar so the packaged MPF
+# parser and rewriter can start without duplicating the modules.
+asarUnpack:
+  - machining-engine/**/*
 
 extraResources:
   - from: scripts
@@ -62,8 +70,6 @@ extraResources:
       - icon-256.png
   - from: macros
     to: macros
-  - from: install-settings-preset.json
-    to: install-settings-preset.json
   - from: LICENSE
     to: LICENSE.txt
   - from: THIRD_PARTY_NOTICES.md
@@ -86,6 +92,7 @@ nsis:
   deleteAppDataOnUninstall: false
   include: installer.nsh
   shortcutName: Excelsis Helper
-  # installer.nsh launches after interactive installs so the optional preset
-  # can fill missing settings. Silent installs do not launch.
+  # installer.nsh stages an optional external settings sidecar, then launches
+  # after interactive installs so it can fill missing settings. Silent installs
+  # stage the file but do not launch.
   runAfterFinish: false

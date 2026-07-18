@@ -31,11 +31,20 @@ const preset = settingsPayloadFromDocument({
 });
 const existing = migrateSettingsAliases({
   hotkeys: { sztTemplate: "EXISTING-[currentdate]" },
+  gcode: {
+    toolTypes: ["HSS-Co"],
+    defaultMillingToolType: "Carbide",
+    defaultDrillToolType: "HSS",
+  },
 });
 const layered = mergeSettingsLayers(preset, existing);
 assert.equal(layered.hotkeys.projectDateTemplate, "EXISTING-[currentdate]");
 assert.equal(layered.macros.dxfOutputPrefix, "PLATE");
 assert.equal(Object.prototype.hasOwnProperty.call(layered.hotkeys, "sztTemplate"), false);
+assert.deepEqual(Array.from(existing.gcode.toolMaterials), ["HSS-Co"]);
+assert.equal(existing.gcode.defaultMillingToolMaterial, "Carbide");
+assert.equal(existing.gcode.defaultDrillToolMaterial, "HSS");
+assert.equal(Object.prototype.hasOwnProperty.call(existing.gcode, "toolTypes"), false);
 
 const polluted = mergeSettingsLayers(JSON.parse('{"__proto__":{"polluted":true}}'));
 assert.equal(polluted.polluted, undefined);

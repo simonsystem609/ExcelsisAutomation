@@ -1,6 +1,6 @@
 # Source and Asset Provenance
 
-This inventory covers Excelsis Helper 1.3.3-public.1.
+This inventory covers Excelsis Helper 1.3.9.
 
 ## Project-owned work
 
@@ -9,9 +9,9 @@ PowerShell/VBS scripts, SWB macros, and icon artwork supplied in this tree.
 Public variants and agent-assisted changes were created for the same project
 and are released under GPL-3.0-only.
 
-The project includes no custom fonts, screenshots, stock photos, texture packs,
-user branding images, vendor program files, SDK DLLs, or redistributable
-SOLIDWORKS/SolidCAM binaries.
+The source package includes no custom fonts, website screenshots, stock photos,
+texture packs, user branding images, vendor program files, SDK DLLs, or
+redistributable SOLIDWORKS/SolidCAM binaries.
 
 ## Macro audit
 
@@ -35,6 +35,22 @@ Public macro defaults use English and generic identifiers. Company paths and
 project prefixes come from editable settings or a deployment preset. Project
 prefixes can be empty where root-based detection is possible.
 
+## Machining taxonomy and recommendation data
+
+The machining engine is project-authored code. Its material names, aliases,
+unit formulas, and normalized numerical ranges are factual interoperability
+data assembled from the public manufacturer and material-producer references
+named in `machining-engine/*.cjs`. Source URLs, retrieval dates, reviewed-
+document SHA-256 values where available, table scope, and conservative transfer
+warnings are retained beside the data. No source PDF, catalog page,
+manufacturer code, logo, product image, or interactive-calculator output is
+redistributed.
+
+Generic milling seeds are independently assembled conservative fallbacks and
+state in the UI when exact manufacturer data were not used. Drilling, tapping,
+and indexable face-milling providers retain their source identity and withhold
+or derate recommendations when their reviewed envelope is not a safe match.
+
 ## Interoperability code
 
 scripts/extract-embedded-preview.cjs is independently authored, read-only code
@@ -57,6 +73,7 @@ The only image assets in public source are the project-owned application icon
 in PNG and ICO formats. The root PNG is used by the renderer and the build copy
 is used by installed native UI.
 
-Trademark names are descriptive interoperability references only. This project
-is independent and is not endorsed by Dassault Systemes, SOLIDWORKS, or
+Trademark and trade-name references are descriptive interoperability and source
+identifiers only. This project is independent and is not endorsed by any named
+tool manufacturer, material producer, Dassault Systemes, SOLIDWORKS, or
 SolidCAM. No trademark rights are granted by the software license.

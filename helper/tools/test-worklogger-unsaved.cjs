@@ -7,7 +7,7 @@ const {
 } = require("../worklogger-unsaved.cjs");
 
 function input(overrides = {}) {
-  return {
+  const result = {
     now: 1000,
     fromWatcher: true,
     connected: true,
@@ -22,6 +22,15 @@ function input(overrides = {}) {
     eligibleSavedPath: false,
     ...overrides,
   };
+  if (!Object.hasOwn(overrides, "openDocuments")) {
+    result.openDocuments = [{
+      hasActiveDocument: true,
+      documentToken: result.documentToken,
+      path: result.docPath,
+      type: result.docType,
+    }];
+  }
+  return result;
 }
 
 function accrue(tracker, startAt, intervals, overrides = {}) {
@@ -54,6 +63,124 @@ function accrue(tracker, startAt, intervals, overrides = {}) {
     docPath: "C:\\CompanyProjects\\PRJ-26-001\\RealName.SLDPRT",
     eligibleSavedPath: true,
   })).kind, "none");
+}
+
+{
+  const tracker = new UnsavedWorkTracker();
+  const { now } = accrue(tracker, 1000, [10000, 10000, 10000, 10000, 10000, 10000]);
+  const promoted = tracker.observe(input({
+    now,
+    documentToken: "d2",
+    docPath: "C:\\CompanyProjects\\PRJ-26-001\\Renamed.SLDPRT",
+    docTitle: "Renamed.SLDPRT",
+    eligibleSavedPath: true,
+  }));
+  assert.equal(promoted.kind, "promote");
+  assert.equal(promoted.promoteMs, DEFAULT_PROMOTION_MIN_MS);
+  assert.equal(promoted.identityRelinked, true);
+  assert.equal(promoted.sourceDocumentToken, "d1");
+  assert.equal(promoted.savedDocumentToken, "d2");
+  assert.equal(tracker.snapshot().pending.length, 0);
+}
+
+{
+  const tracker = new UnsavedWorkTracker();
+  const { now } = accrue(tracker, 1000, [10000, 10000, 10000, 10000, 10000, 9999]);
+  const discarded = tracker.observe(input({
+    now,
+    documentToken: "d2",
+    docPath: "C:\\CompanyProjects\\PRJ-26-001\\TooBrief.SLDPRT",
+    eligibleSavedPath: true,
+  }));
+  assert.equal(discarded.kind, "discard");
+  assert.equal(discarded.discardedMs, 59999);
+  assert.equal(discarded.identityRelinked, true);
+}
+
+{
+  const tracker = new UnsavedWorkTracker();
+  let now = 1000;
+  const openDocuments = [
+    { documentToken: "d1", path: "", type: "1" },
+    { documentToken: "d2", path: "C:\\CompanyProjects\\PRJ-26-001\\Existing.SLDPRT", type: "1" },
+  ];
+  tracker.observe(input({ now, openDocuments }));
+  for (let i = 0; i < 6; i += 1) {
+    now += 10000;
+    tracker.observe(input({ now, openDocuments }));
+  }
+  const switched = tracker.observe(input({
+    now,
+    documentToken: "d2",
+    docPath: "C:\\CompanyProjects\\PRJ-26-001\\Existing.SLDPRT",
+    eligibleSavedPath: true,
+    openDocuments,
+  }));
+  assert.equal(switched.kind, "none");
+  assert.equal(switched.reason, "saved-without-pending");
+  assert.equal(tracker.snapshot().pending.find((entry) => entry.documentToken === "d1").totalMs, 60000);
+}
+
+{
+  const tracker = new UnsavedWorkTracker();
+  const { now } = accrue(tracker, 1000, [10000, 10000, 10000, 10000, 10000, 10000]);
+  const staleTransition = tracker.observe(input({
+    now: now + 45001,
+    documentToken: "d2",
+    docPath: "C:\\CompanyProjects\\PRJ-26-001\\TooLateToRelink.SLDPRT",
+    eligibleSavedPath: true,
+  }));
+  assert.equal(staleTransition.kind, "none");
+  assert.equal(staleTransition.reason, "saved-without-pending");
+  assert.equal(tracker.snapshot().pending.find((entry) => entry.documentToken === "d1").totalMs, 60000);
+}
+
+{
+  const tracker = new UnsavedWorkTracker();
+  const { now } = accrue(tracker, 1000, [10000, 10000, 10000, 10000, 10000, 10000]);
+  const noWatcherEvidence = tracker.observe(input({
+    now,
+    documentToken: "d2",
+    docPath: "C:\\CompanyProjects\\PRJ-26-001\\NoWatcherEvidence.SLDPRT",
+    eligibleSavedPath: true,
+    openDocuments: null,
+  }));
+  assert.equal(noWatcherEvidence.kind, "none");
+  assert.equal(noWatcherEvidence.reason, "saved-without-pending");
+  assert.equal(tracker.snapshot().pending.find((entry) => entry.documentToken === "d1").totalMs, 60000);
+}
+
+{
+  const tracker = new UnsavedWorkTracker();
+  const { now } = accrue(tracker, 1000, [10000, 10000, 10000, 10000, 10000, 10000]);
+  const mismatchedType = tracker.observe(input({
+    now,
+    documentToken: "d2",
+    docType: "2",
+    docPath: "C:\\CompanyProjects\\PRJ-26-001\\DifferentType.SLDASM",
+    eligibleSavedPath: true,
+  }));
+  assert.equal(mismatchedType.kind, "none");
+  assert.equal(mismatchedType.reason, "saved-without-pending");
+  assert.equal(tracker.snapshot().pending.find((entry) => entry.documentToken === "d1").totalMs, 60000);
+}
+
+{
+  const tracker = new UnsavedWorkTracker();
+  const { now } = accrue(tracker, 1000, [10000, 10000, 10000, 10000, 10000, 10000]);
+  const switched = tracker.observe(input({
+    now,
+    documentToken: "d2",
+    docPath: "C:\\CompanyProjects\\PRJ-26-001\\OtherNewDocument.SLDPRT",
+    eligibleSavedPath: true,
+    openDocuments: [
+      { documentToken: "d1", path: "", type: "1" },
+      { documentToken: "d2", path: "C:\\CompanyProjects\\PRJ-26-001\\OtherNewDocument.SLDPRT", type: "1" },
+    ],
+  }));
+  assert.equal(switched.kind, "none");
+  assert.equal(switched.reason, "saved-without-pending");
+  assert.equal(tracker.snapshot().pending.find((entry) => entry.documentToken === "d1").totalMs, 60000);
 }
 
 {
@@ -112,6 +239,11 @@ function accrue(tracker, startAt, intervals, overrides = {}) {
     documentToken: "d3",
     docPath: "C:\\CompanyProjects\\PRJ-26-001\\Wrong.SLDPRT",
     eligibleSavedPath: true,
+    openDocuments: [
+      { documentToken: "d1", path: "", type: "1" },
+      { documentToken: "d2", path: "", type: "1" },
+      { documentToken: "d3", path: "C:\\CompanyProjects\\PRJ-26-001\\Wrong.SLDPRT", type: "1" },
+    ],
   })).kind, "none");
   assert.equal(tracker.snapshot().pending.length, 2);
 }
@@ -182,5 +314,7 @@ const main = fs.readFileSync(path.join(root, "main.cjs"), "utf8");
 assert.match(main, /hasActiveCountableDoc \|\| hasExplicitActiveDocument/);
 assert.match(main, /addPromotedUnsavedProjectActivityTime/);
 assert.match(main, /UNSAVED_PROJECT_ACTIVITY_PROMOTION_MIN_MS/);
+assert.match(main, /openDocuments: Array\.isArray\(bridgeResult\?\.openDocuments\)/);
+assert.match(main, /identityRelinked: unsavedObservation\.identityRelinked === true/);
 
 console.log("Unsaved Work Logger identity, threshold, promotion, and fail-closed tests passed.");
